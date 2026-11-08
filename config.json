@@ -1,0 +1,14 @@
+{
+  "botName": "Bot CPNS Hub",
+  "ownerNumbers": [
+    "6289531946313",
+    "74441061089525",
+    "6289691905347"
+  ],
+  "pairingCode": {
+    "enabled": false,
+    "phoneNumber": ""
+  },
+  "registeredGroups": {},
+  "registeredPrivate": {}
+}

@@ -1,0 +1,19 @@
+{
+  "nextId": 3,
+  "items": [
+    {
+      "id": 1,
+      "callName": "twk pancasila",
+      "content": "Pancasila adalah dasar negara dengan 5 sila.",
+      "createdAt": "8/11/2026, 19.59.39",
+      "updatedAt": "8/11/2026, 19.59.39"
+    },
+    {
+      "id": 2,
+      "callName": "tiu silogisme",
+      "content": "Semua manusia fana. Socrates manusia -> Socrates fana.",
+      "createdAt": "8/11/2026, 19.59.39",
+      "updatedAt": "8/11/2026, 19.59.39"
+    }
+  ]
+}
