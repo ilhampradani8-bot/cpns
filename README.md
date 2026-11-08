@@ -52,3 +52,4 @@ cd /root/CPNS
 node index.js --pairing
 ```
 Masukkan nomor WhatsApp bot saat diminta (contoh: `628123456789`), lalu masukkan kode pairing 8 digit di WhatsApp HP Anda (*Perangkat Tertaut > Tautkan dengan nomor telepon*).
+

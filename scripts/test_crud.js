@@ -1,4 +1,4 @@
-const db = require('./src/database');
+const db = require('../src/database');
 const assert = require('assert');
 
 console.log('🧪 Memulai pengujian unit logika CRUD CPNS...');
@@ -47,5 +47,9 @@ console.log('✅ Hapus:', delRes);
 assert.strictEqual(delRes.success, true);
 assert.strictEqual(db.getItem('pilar kebangsaan'), null);
 assert.strictEqual(db.getAllItems().length, 1);
+
+// Clean up item 2
+db.deleteItem('tiu silogisme');
+assert.strictEqual(db.getAllItems().length, 0);
 
 console.log('🎉 SEMUA TES LOGIKA CRUD CPNS BERHASIL 100%!');
