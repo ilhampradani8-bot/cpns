@@ -11,6 +11,7 @@ const readline = require('readline');
 const qrcode = require('qrcode-terminal');
 const { handleMessage } = require('./commandHandler');
 const alarmService = require('./alarmService');
+const webServer = require('./webServer');
 
 // Anti-crash
 process.on('uncaughtException', (err) => {
@@ -63,13 +64,18 @@ function loadConfig() {
   }
 }
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const question = (query) => new Promise((resolve) => rl.question(query, resolve));
+// Inisialisasi Web Server Login (Port 3055)
+let webServerInstance = null;
+try {
+  webServerInstance = webServer.startWebServer(3055);
+} catch (e) {
+  console.log('[WebServer] Web server sudah berjalan atau port in use.');
+}
 
 async function startBot() {
   const config = loadConfig();
   console.log('==============================================');
-  console.log('📚 MEMULAI BOT WHATSAPP CPNS (CRUD SYSTEM)...');
+  console.log('📚 MEMULAI BOT WHATSAPP CPNS (UTM HOST)...');
   console.log('==============================================');
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -88,26 +94,30 @@ async function startBot() {
     getMessage: async () => undefined
   });
 
-  // Pairing code mode
+  // Pasang handler request pairing code dari web UI
+  webServer.setPairingRequestHandler(async (phoneNumber) => {
+    return await sock.requestPairingCode(phoneNumber);
+  });
+
+  // Pairing code mode via CLI flag
   const usePairing = process.argv.includes('--pairing') || config.pairingCode?.enabled;
   if (usePairing && !sock.authState.creds.registered) {
     let phoneNumber = config.pairingCode?.phoneNumber;
-    if (!phoneNumber) {
-      phoneNumber = await question('\n📱 Masukkan Nomor WhatsApp untuk Bot CPNS (contoh: 628123456789): ');
+    if (phoneNumber) {
+      phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+      setTimeout(async () => {
+        try {
+          const code = await sock.requestPairingCode(phoneNumber);
+          webServer.setPairingCode(code);
+          console.log('\n==============================================');
+          console.log(`🔑 PAIRING CODE BOT CPNS: [ ${code} ]`);
+          console.log('Buka WhatsApp HP > Perangkat Tertaut > Tautkan dengan nomor telepon');
+          console.log('==============================================\n');
+        } catch (err) {
+          console.error('[PairingCode] Gagal request code:', err.message);
+        }
+      }, 3000);
     }
-    phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-
-    setTimeout(async () => {
-      try {
-        const code = await sock.requestPairingCode(phoneNumber);
-        console.log('\n==============================================');
-        console.log(`🔑 PAIRING CODE BOT CPNS: [ ${code} ]`);
-        console.log('Buka WhatsApp HP > Perangkat Tertaut > Tautkan dengan nomor telepon');
-        console.log('==============================================\n');
-      } catch (err) {
-        console.error('[PairingCode] Gagal request code:', err.message);
-      }
-    }, 3000);
   }
 
   sock.ev.on('creds.update', saveCreds);
@@ -115,17 +125,20 @@ async function startBot() {
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr && !usePairing) {
+    if (qr) {
+      webServer.setQr(qr);
       console.log('\n╔════════════════════════════════════════════════════════════╗');
       console.log('║               SCAN QR CODE LOGIN BOT CPNS                  ║');
       console.log('╠════════════════════════════════════════════════════════════╣');
       qrcode.generate(qr, { small: true });
+      console.log('\n🌐 Atau buka di browser: http://localhost:3055');
     }
 
     if (connection === 'close') {
       const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
       const reason = (lastDisconnect?.error)?.output?.payload?.message || lastDisconnect?.error?.message || 'Unknown';
       console.log(`[Koneksi] Putus: ${reason}. Rekoneksi: ${shouldReconnect}`);
+      webServer.setDisconnected(reason);
 
       if (shouldReconnect) {
         setTimeout(startBot, 5000);
@@ -137,6 +150,7 @@ async function startBot() {
       console.log(`🆔 ID Bot: ${sock.user?.id || 'Connected'}`);
       console.log('🤖 Menunggu perintah CRUD di grup CPNS / testing pribadi...');
       console.log('----------------------------------------------');
+      webServer.setConnected(sock.user?.id || 'Connected');
       // Aktifkan background alarm scheduler
       alarmService.startAlarmWorker(sock);
     }

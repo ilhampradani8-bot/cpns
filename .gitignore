@@ -4,3 +4,4 @@ auth_info/
 /tmp/cpns-bot.lock
 
 data/backups/
+bot.log
