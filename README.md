@@ -58,23 +58,37 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
 > **Host Eksekusi Utama**: Bot CPNS Hub berjalan **100% mandiri di Komputer UTM (`DESKTOP-7NHAC8R` WSL2 Ubuntu)** dan **0% ketergantungan ke VPS**. Jika server VPS offline, bot CPNS tetap online 24/7.
 > Sesi WhatsApp login aktif: `6289691905347:7@s.whatsapp.net` tersimpan di folder `/root/CPNS/auth_info`.
 
-### Mode 1: Jalankan Interaktif di Terminal (Scan QR)
+### Mode 1: Layanan Background Service Systemd (Resmi & Rekomendasi 24/7)
+Bot dikelola langsung oleh init system Linux (Systemd) di UTM, kebal penutupan terminal/IDE, dan auto-start saat komputer menyala:
 ```bash
-cd /root/CPNS
-node index.js
-```
-Panel Web Status & Scan QR juga otomatis dapat diakses di browser: `http://localhost:3055`.
+# Cek status bot
+systemctl status cpns-bot
 
-### Mode 2: Jalankan Nonstop 24/7 di Background UTM (Daemon Auto-Restart)
+# Restart bot
+systemctl restart cpns-bot
+
+# Matikan bot jika diperlukan
+systemctl stop cpns-bot
+
+# Pantau aktivitas log
+tail -f /root/CPNS/bot.log
+```
+
+### Mode 2: Jalankan Nonstop via Daemon Script
 ```bash
 cd /root/CPNS
 nohup ./scripts/run_daemon.sh >/dev/null 2>&1 &
 ```
-- Bot otomatis berjalan di background dan kebal mati (auto-restart loop jika terputus).
-- Pantau aktivitas log: `tail -f /root/CPNS/bot.log`.
 - Matikan daemon jika diperlukan: `pkill -f run_daemon.sh && pkill -f "node index.js"`.
 
-### Mode 3: Login via Pairing Code (Tanpa Scan Kamera)
+### Mode 3: Jalankan Interaktif di Terminal (Scan QR)
+```bash
+cd /root/CPNS
+node index.js
+```
+Panel Web Status & Scan QR otomatis dapat diakses di browser: `http://localhost:3055`.
+
+### Mode 4: Login via Pairing Code (Tanpa Scan Kamera)
 ```bash
 cd /root/CPNS
 node index.js --pairing
