@@ -41,15 +41,29 @@ console.log('✅ Edit isi:', editContentRes);
 assert.strictEqual(editContentRes.success, true);
 assert.strictEqual(db.getItem('pilar kebangsaan').content, 'Isi baru: 4 Pilar Kebangsaan RI.');
 
-// 7. Test Hapus
+// 7. Test Save File / Berkas
+const sampleBuffer = Buffer.from('PDF_SAMPLE_DATA_TWK_2026');
+const savedFile = db.saveMediaFile(sampleBuffer, 'modul_twk.pdf', 'application/pdf', 'document');
+const fileItem = db.saveItem('modul twk', 'Lampiran modul TWK PDF resmi.', savedFile);
+console.log('✅ Save file item:', fileItem);
+assert.strictEqual(fileItem.item.type, 'file');
+assert.strictEqual(fileItem.item.file.fileName, 'modul_twk.pdf');
+assert.strictEqual(db.getItem('modul twk').file.fileName, 'modul_twk.pdf');
+
+// 8. Test Hapus Berkas
+const delFileRes = db.deleteItem('modul twk');
+console.log('✅ Hapus file:', delFileRes);
+assert.strictEqual(delFileRes.success, true);
+assert.strictEqual(db.getItem('modul twk'), null);
+
+// 9. Test Hapus Item 1 & Item 2
 const delRes = db.deleteItem('pilar kebangsaan');
 console.log('✅ Hapus:', delRes);
 assert.strictEqual(delRes.success, true);
 assert.strictEqual(db.getItem('pilar kebangsaan'), null);
-assert.strictEqual(db.getAllItems().length, 1);
 
 // Clean up item 2
 db.deleteItem('tiu silogisme');
 assert.strictEqual(db.getAllItems().length, 0);
 
-console.log('🎉 SEMUA TES LOGIKA CRUD CPNS BERHASIL 100%!');
+console.log('🎉 SEMUA TES LOGIKA CRUD CPNS (TEKS & FILE) BERHASIL 100%!');

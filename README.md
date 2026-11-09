@@ -28,12 +28,14 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
 | Perintah | Format Contoh | Deskripsi |
 | :--- | :--- | :--- |
 | **Registrasi Grup / Test** | `daftar cpns` | Ketik di grup untuk mendaftarkan grup CPNS, atau ketik di DM pribadi untuk testing. |
-| **Simpan Materi (Create)** | `save (twk pancasila) isi (Pancasila adalah dasar filosofis negara Republik Indonesia...)` | Menyimpan materi baru. Judul otomatis jadi nama panggilan. |
-| **Panggil Materi (Read)** | `twk pancasila` <br>atau `panggil twk pancasila` <br>atau `panggil 1` | Menampilkan isi materi yang tersimpan. |
-| **Lihat Semua Materi (List)** | `panggil daftar` <br>atau `daftar` <br>atau `list` | Menampilkan seluruh materi yang terdata beserta nomor urutnya. |
-| **Ubah Nama Panggilan (Update)** | `edit (twk pancasila) to (pilar kebangsaan)` | Mengubah nama panggilan dari yang lama ke yang baru. |
-| **Ubah/Timpa Isi (Update Content)** | `edit isi (pilar kebangsaan) isi (Isi terbaru mengenai pilar kebangsaan...)` | Menimpa isi materi dengan penjelasan yang baru. |
-| **Hapus Materi (Delete)** | `hapus pilar kebangsaan` <br>atau `hapus 1` | Menghapus materi dari daftar bank soal CPNS. |
+| **Simpan Catatan Teks** | `save (twk pancasila) isi (Pancasila adalah dasar filosofis...)` | Menyimpan materi baru berupa teks catatan. |
+| **Simpan Berkas File (PDF/Foto)** | Kirim PDF/Foto/Doc dengan caption:<br>`save (modul twk)`<br>atau reply file lalu ketik:<br>`save (modul twk) isi (Keterangan file...)` | Mengunduh dan menyimpan berkas fisik (PDF, gambar, dokumen, dll) ke database server. |
+| **Panggil Materi / File (Read)** | `twk pancasila`<br>atau `modul twk`<br>atau `panggil 1` | Menampilkan catatan teks atau **langsung mengirimkan berkas file aslinya**. |
+| **Lihat Semua Materi (List)** | `daftar` atau `list` | Menampilkan seluruh materi & file terdata dengan ikon status (`📄`, `🖼️`, `📝`). |
+| **Ubah Nama Panggilan** | `edit (twk pancasila) to (pilar kebangsaan)` | Mengubah nama panggilan dari yang lama ke yang baru. |
+| **Ubah/Timpa Isi** | `edit isi (pilar kebangsaan) isi (Isi terbaru...)` | Menimpa isi teks/keterangan materi dengan penjelasan baru. |
+| **Hapus Materi / File** | `hapus pilar kebangsaan`<br>atau `hapus 1` | Menghapus materi dari database (termasuk menghapus berkas fisik file dari server). |
+| **Pengumuman Hidetag (Admin)** | `hidetag (isi pengumuman)`<br>atau reply pesan lalu ketik `hidetag` | Menandai (tagall) seluruh anggota grup CPNS untuk info penting. |
 | **Bantuan / Menu** | `menu` atau `help` | Menampilkan panduan ringkas format perintah. |
 
 ---

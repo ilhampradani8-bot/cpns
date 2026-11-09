@@ -4,10 +4,12 @@ const path = require('path');
 const DATA_DIR = path.join(__dirname, '../data');
 const DB_PATH = path.join(DATA_DIR, 'cpns_data.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const FILES_DIR = path.join(DATA_DIR, 'files');
 
 function ensureDirectories() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 }
 
 function loadData() {
@@ -90,19 +92,57 @@ function normalizeKey(str) {
   return String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-// 1. Simpan (Create atau Update jika sudah ada)
-function saveItem(callName, content) {
+// Helper simpan file biner (PDF, gambar, dokumen, dll)
+function saveMediaFile(buffer, originalFileName, mimetype, fileType = 'document') {
+  ensureDirectories();
+  const safeName = (originalFileName || `file_${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const uniqueName = `${Date.now()}_${safeName}`;
+  const targetPath = path.join(FILES_DIR, uniqueName);
+
+  fs.writeFileSync(targetPath, buffer);
+
+  return {
+    fileName: originalFileName || safeName,
+    filePath: path.join('files', uniqueName),
+    mimetype: mimetype || 'application/octet-stream',
+    fileType: fileType, // 'document', 'image', 'video', 'audio'
+    size: buffer.length
+  };
+}
+
+// 1. Simpan (Create atau Update jika sudah ada, support Text & File)
+function saveItem(callName, content = '', fileData = null) {
   const norm = normalizeKey(callName);
   if (!norm) throw new Error('Nama panggilan tidak boleh kosong.');
-  if (!content || !content.trim()) throw new Error('Isi materi tidak boleh kosong.');
+  if ((!content || !content.trim()) && !fileData) {
+    throw new Error('Isi materi atau lampiran file tidak boleh kosong.');
+  }
 
   const data = loadData();
   const existingIdx = data.items.findIndex(i => normalizeKey(i.callName) === norm);
   const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
 
   if (existingIdx !== -1) {
-    // Timpa jika sudah ada dengan nama panggilan yang sama
-    data.items[existingIdx].content = content.trim();
+    // Jika data lama ada file dan diganti file baru, hapus file lama dari disk
+    if (fileData && data.items[existingIdx].file?.filePath) {
+      try {
+        const oldFile = path.isAbsolute(data.items[existingIdx].file.filePath)
+          ? data.items[existingIdx].file.filePath
+          : path.join(DATA_DIR, data.items[existingIdx].file.filePath);
+        if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+      } catch (_) {}
+    }
+
+    if (fileData) {
+      data.items[existingIdx].type = 'file';
+      data.items[existingIdx].file = fileData;
+    }
+    if (content !== undefined && content !== null && content.trim() !== '') {
+      data.items[existingIdx].content = content.trim();
+    } else if (fileData && !data.items[existingIdx].content) {
+      data.items[existingIdx].content = '';
+    }
+
     data.items[existingIdx].updatedAt = now;
     saveData(data);
     return { isNew: false, item: data.items[existingIdx] };
@@ -111,7 +151,9 @@ function saveItem(callName, content) {
     const newItem = {
       id: data.nextId || (data.items.length + 1),
       callName: callName.trim(),
-      content: content.trim(),
+      type: fileData ? 'file' : 'text',
+      content: (content || '').trim(),
+      file: fileData || null,
       createdAt: now,
       updatedAt: now
     };
@@ -182,6 +224,17 @@ function deleteItem(callNameOrId) {
   }
 
   const removed = data.items.splice(idx, 1)[0];
+
+  // Hapus berkas fisik jika ada
+  if (removed.file?.filePath) {
+    try {
+      const fp = path.isAbsolute(removed.file.filePath)
+        ? removed.file.filePath
+        : path.join(DATA_DIR, removed.file.filePath);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    } catch (_) {}
+  }
+
   saveData(data);
   return { success: true, item: removed };
 }
@@ -213,11 +266,14 @@ function getAllItems() {
 
 module.exports = {
   saveItem,
+  saveMediaFile,
   editCallName,
   editContent,
   deleteItem,
   getItem,
   getAllItems,
-  normalizeKey
+  normalizeKey,
+  DATA_DIR,
+  FILES_DIR
 };
 

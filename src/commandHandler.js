@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const db = require('./database');
 const whitelist = require('./whitelist');
 
@@ -9,10 +12,82 @@ function cleanText(text) {
 }
 
 /**
+ * Deteksi dan ekstraksi media pesan (baik lampiran langsung maupun pesan yang di-reply / quoted)
+ */
+function extractMedia(msg) {
+  if (!msg || !msg.message) return null;
+
+  function unwrap(m) {
+    if (!m) return null;
+    if (m.ephemeralMessage?.message) return unwrap(m.ephemeralMessage.message);
+    if (m.viewOnceMessage?.message) return unwrap(m.viewOnceMessage.message);
+    if (m.viewOnceMessageV2?.message) return unwrap(m.viewOnceMessageV2.message);
+    if (m.documentWithCaptionMessage?.message) return unwrap(m.documentWithCaptionMessage.message);
+    return m;
+  }
+
+  const direct = unwrap(msg.message);
+  let mediaType = null;
+  let mediaNode = null;
+
+  if (direct?.documentMessage) {
+    mediaType = 'document';
+    mediaNode = direct.documentMessage;
+  } else if (direct?.imageMessage) {
+    mediaType = 'image';
+    mediaNode = direct.imageMessage;
+  } else if (direct?.videoMessage) {
+    mediaType = 'video';
+    mediaNode = direct.videoMessage;
+  } else if (direct?.audioMessage) {
+    mediaType = 'audio';
+    mediaNode = direct.audioMessage;
+  }
+
+  // Cek jika pengguna me-reply pesan file/gambar
+  if (!mediaNode) {
+    const contextInfo = msg.message.extendedTextMessage?.contextInfo ||
+                        direct?.extendedTextMessage?.contextInfo;
+    const quoted = unwrap(contextInfo?.quotedMessage);
+    if (quoted?.documentMessage) {
+      mediaType = 'document';
+      mediaNode = quoted.documentMessage;
+    } else if (quoted?.imageMessage) {
+      mediaType = 'image';
+      mediaNode = quoted.imageMessage;
+    } else if (quoted?.videoMessage) {
+      mediaType = 'video';
+      mediaNode = quoted.videoMessage;
+    } else if (quoted?.audioMessage) {
+      mediaType = 'audio';
+      mediaNode = quoted.audioMessage;
+    }
+  }
+
+  if (!mediaNode) return null;
+
+  const ext = mediaType === 'image' ? '.jpg' : mediaType === 'document' ? '.pdf' : mediaType === 'video' ? '.mp4' : '.mp3';
+  const fileName = mediaNode.fileName || mediaNode.title || `${mediaType}_${Date.now()}${ext}`;
+  const mimetype = mediaNode.mimetype || (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream');
+
+  return { mediaType, mediaNode, fileName, mimetype };
+}
+
+/**
+ * Unduh stream media biner ke Buffer
+ */
+async function downloadMedia(mediaNode, mediaType) {
+  const stream = await downloadContentFromMessage(mediaNode, mediaType);
+  let buffer = Buffer.from([]);
+  for await (const chunk of stream) {
+    buffer = Buffer.concat([buffer, chunk]);
+  }
+  return buffer;
+}
+
+/**
  * Ekstraksi pola kurung atau pemisah "isi"
- * Contoh:
- * save (twk pancasila) isi (teks...)
- * save twk pancasila isi teks...
+ * Mendukung teks biasa maupun lampiran file (contoh: save (twk modul 1), save (twk) isi (catatan...))
  */
 function parseSaveCommand(text) {
   // Pola 1: save (judul) isi (isi) atau save [judul] isi [isi]
@@ -31,6 +106,18 @@ function parseSaveCommand(text) {
   match = text.match(/^(?:save|simpan)\s+([\s\S]+?)\s+isi\s+([\s\S]+)$/i);
   if (match) {
     return { callName: match[1].trim(), content: match[2].trim() };
+  }
+
+  // Pola 4: save (judul) atau simpan (judul) (berguna saat kirim file / reply file)
+  match = text.match(/^(?:save|simpan)\s*[\(\[]([^\)\]]+)[\)\]](?:\s*file)?$/i);
+  if (match) {
+    return { callName: match[1].trim(), content: '' };
+  }
+
+  // Pola 5: save judul file (contoh: save modul twk file)
+  match = text.match(/^(?:save|simpan)\s+([\s\S]+?)\s+file$/i);
+  if (match) {
+    return { callName: match[1].trim(), content: '' };
   }
 
   return null;
@@ -111,6 +198,55 @@ function parsePanggilCommand(text) {
 }
 
 /**
+ * Helper pengiriman konten materi (Teks atau Berkas File)
+ */
+async function sendItemContent(sock, fromJid, item, msg) {
+  if (item.type === 'file' && item.file) {
+    const filePath = path.isAbsolute(item.file.filePath)
+      ? item.file.filePath
+      : path.join(db.DATA_DIR, item.file.filePath);
+
+    if (fs.existsSync(filePath)) {
+      const buffer = fs.readFileSync(filePath);
+      const sizeKb = (item.file.size / 1024).toFixed(1);
+      const caption =
+        `📌 *[ #${item.id} - ${item.callName.toUpperCase()} ]*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        (item.content ? `${item.content}\n\n` : '') +
+        `📎 *Nama Berkas:* \`${item.file.fileName}\`\n` +
+        `📦 *Ukuran:* ${sizeKb} KB\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🕒 _Update: ${item.updatedAt}_`;
+
+      if (item.file.fileType === 'image') {
+        return await sock.sendMessage(fromJid, { image: buffer, caption }, { quoted: msg });
+      } else if (item.file.fileType === 'video') {
+        return await sock.sendMessage(fromJid, { video: buffer, caption }, { quoted: msg });
+      } else if (item.file.fileType === 'audio') {
+        return await sock.sendMessage(fromJid, { audio: buffer, mimetype: item.file.mimetype || 'audio/mp4' }, { quoted: msg });
+      } else {
+        // Document (PDF, Word, Excel, ZIP, dll)
+        return await sock.sendMessage(fromJid, {
+          document: buffer,
+          mimetype: item.file.mimetype || 'application/octet-stream',
+          fileName: item.file.fileName || `${item.callName}.pdf`,
+          caption
+        }, { quoted: msg });
+      }
+    }
+  }
+
+  // Teks biasa (atau file fisik tidak ditemukan)
+  const resp =
+    `📌 *[ #${item.id} - ${item.callName.toUpperCase()} ]*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `${item.content || '_(Tidak ada isi teks)_'}\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🕒 _Update: ${item.updatedAt}_`;
+  return await sock.sendMessage(fromJid, { text: resp }, { quoted: msg });
+}
+
+/**
  * Main Command Handler
  */
 async function handleMessage(sock, msg) {
@@ -119,16 +255,27 @@ async function handleMessage(sock, msg) {
   const key = msg.key;
   const fromJid = key.remoteJid;
   const isGroup = fromJid.endsWith('@g.us');
-  const senderJid = isGroup ? key.participant : fromJid;
+  const senderJid = isGroup ? (key.participantPn || key.participant || fromJid) : fromJid;
 
-  // Dapatkan isi teks pesan
-  const messageContent = msg.message.conversation ||
-    msg.message.extendedTextMessage?.text ||
-    msg.message.imageMessage?.caption ||
+  // Dapatkan isi teks pesan (conversation, extendedText, caption dokumen/gambar)
+  let actualMessage = msg.message;
+  if (actualMessage.ephemeralMessage?.message) actualMessage = actualMessage.ephemeralMessage.message;
+  if (actualMessage.viewOnceMessage?.message) actualMessage = actualMessage.viewOnceMessage.message;
+  if (actualMessage.viewOnceMessageV2?.message) actualMessage = actualMessage.viewOnceMessageV2.message;
+  if (actualMessage.documentWithCaptionMessage?.message) actualMessage = actualMessage.documentWithCaptionMessage.message;
+
+  const messageContent = actualMessage.conversation ||
+    actualMessage.extendedTextMessage?.text ||
+    actualMessage.imageMessage?.caption ||
+    actualMessage.videoMessage?.caption ||
+    actualMessage.documentMessage?.caption ||
     '';
 
   const rawText = cleanText(messageContent);
-  if (!rawText) return;
+  const media = extractMedia(msg);
+
+  // Jika tidak ada teks dan tidak ada media, abaikan
+  if (!rawText && !media) return;
 
   const lowerText = rawText.toLowerCase();
 
@@ -172,72 +319,189 @@ async function handleMessage(sock, msg) {
     return;
   }
 
-  // 3. MENU / HELP / BANTUAN
+  // 3. FITUR HIDETAG / TAGALL (Khusus Grup CPNS, Admin / Owner only)
+  const hidetagMatch = lowerText.match(/^(?:\.|\/|#)?(?:hidetag|tagall)(?:\s+([\s\S]*))?$/i);
+  if (hidetagMatch) {
+    if (!isGroup) {
+      await sock.sendMessage(fromJid, {
+        text: '⚠️ Perintah *hidetag* hanya dapat digunakan di dalam grup WhatsApp CPNS.'
+      }, { quoted: msg });
+      return;
+    }
+
+    // Periksa apakah pengirim adalah Owner atau Admin Grup
+    let isAdmin = whitelist.isOwner(senderJid);
+    let participants = [];
+    try {
+      const meta = await sock.groupMetadata(fromJid);
+      participants = meta.participants || [];
+      if (!isAdmin) {
+        const cleanSender = String(senderJid).split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        const p = participants.find(x => x.id.replace(/[^0-9]/g, '').startsWith(cleanSender));
+        if (p && (p.admin === 'admin' || p.admin === 'superadmin')) {
+          isAdmin = true;
+        }
+      }
+    } catch (_) {}
+
+    if (!isAdmin) {
+      await sock.sendMessage(fromJid, {
+        text: '⚠️ Perintah *hidetag* hanya dapat digunakan oleh Admin Grup atau Owner.'
+      }, { quoted: msg });
+      return;
+    }
+
+    // Ambil isi teks pengumuman
+    let announcement = (rawText.replace(/^(?:\.|\/|#)?(?:hidetag|tagall)\s*/i, '') || '').trim();
+    if (!announcement) {
+      // Jika kosong, cek apakah me-reply pesan teks
+      const quoted = actualMessage.extendedTextMessage?.contextInfo?.quotedMessage;
+      announcement = quoted?.conversation ||
+                     quoted?.extendedTextMessage?.text ||
+                     quoted?.imageMessage?.caption ||
+                     quoted?.documentMessage?.caption ||
+                     '📢 *PENGUMUMAN UNTUK SELURUH ANGGOTA GRUP CPNS*';
+    }
+
+    const myBotNum = (sock.user?.id || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+    const allMentions = participants
+      .map(p => p.id)
+      .filter(jid => jid && !jid.includes(myBotNum));
+
+    const wibTime = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    const cleanSenderNum = senderJid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+
+    const broadcastMsg =
+      `📢 *PENGUMUMAN PENTING (HIDETAG)*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👤 *Oleh:* @${cleanSenderNum}\n` +
+      `⏱️ *Waktu:* ${wibTime} WIB\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `${announcement}\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `_Pemberitahuan resmi untuk seluruh anggota grup CPNS._`;
+
+    await sock.sendMessage(fromJid, {
+      text: broadcastMsg,
+      mentions: allMentions
+    }, { quoted: msg });
+    return;
+  }
+
+  // 4. MENU / HELP / BANTUAN
   if (lowerText === 'menu' || lowerText === 'help' || lowerText === 'bantuan') {
     const helpMsg =
       `📖 *PANDUAN PERINTAH BOT CPNS*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `*1. Simpan Materi (CRUD - Create)*\n` +
+      `*1. Simpan Catatan Teks (Create)*\n` +
       `• *save [judul] isi [konten]*\n` +
-      `_Contoh:_ \`save (twk pancasila) isi (Pancasila adalah dasar negara Indonesia.)\`\n\n` +
-      `*2. Panggil Materi (CRUD - Read)*\n` +
+      `_Contoh:_ \`save (twk pancasila) isi (Pancasila adalah dasar negara.)\`\n\n` +
+      `*2. Simpan Berkas File / PDF / Foto (File Storage)*\n` +
+      `• Kirim file / foto dengan caption: *save [judul]*\n` +
+      `• Atau reply file yang sudah ada lalu ketik: *save [judul]*\n` +
+      `• Bisa sertakan keterangan: *save [judul] isi [penjelasan]*\n` +
+      `_Contoh:_ \`save (twk modul 1) isi (Modul lengkap TWK 2026 PDF)\`\n\n` +
+      `*3. Panggil Materi / Unduh File (Read)*\n` +
       `• *panggil [nama]* atau langsung ketik *[nama]*\n` +
       `• Bisa panggil pakai nomor urut: *panggil 1*\n` +
-      `_Contoh:_ \`twk pancasila\` atau \`panggil 1\`\n\n` +
-      `*3. Lihat Semua Materi (CRUD - Read List)*\n` +
+      `_Bot akan otomatis mengirimkan teks atau file aslinya._\n\n` +
+      `*4. Lihat Semua Materi (Read List)*\n` +
       `• *panggil daftar* / *daftar* / *list*\n\n` +
-      `*4. Edit Nama Panggilan (CRUD - Update)*\n` +
+      `*5. Edit Nama Panggilan (Update)*\n` +
       `• *edit [nama lama] to [nama baru]*\n` +
-      `_Contoh:_ \`edit (twk pancasila) to (pilar kebangsaan)\`\n\n` +
-      `*5. Edit Isi Materi (CRUD - Update Content)*\n` +
-      `• *edit isi [nama] isi [isi baru]*\n` +
-      `_Contoh:_ \`edit isi (pilar kebangsaan) isi (Isi terbaru pilar kebangsaan...)\`\n\n` +
-      `*6. Hapus Materi (CRUD - Delete)*\n` +
-      `• *hapus [nama]* atau *hapus [nomor]*\n` +
-      `_Contoh:_ \`hapus pilar kebangsaan\`\n\n` +
+      `_Contoh:_ \`edit (twk modul 1) to (twk lengkap)\`\n\n` +
+      `*6. Edit Isi Catatan (Update Content)*\n` +
+      `• *edit isi [nama] isi [isi baru]*\n\n` +
+      `*7. Hapus Materi / File (Delete)*\n` +
+      `• *hapus [nama]* atau *hapus [nomor]*\n\n` +
+      `*8. Pengumuman Tag Semua (Admin Only)*\n` +
+      `• *hidetag [pesan pengumuman]* atau reply pesan ketik *hidetag*\n\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `💾 _Data tersimpan aman di database permanen._`;
+      `💾 _Data & file tersimpan aman di penyimpanan permanen._`;
 
     await sock.sendMessage(fromJid, { text: helpMsg }, { quoted: msg });
     return;
   }
 
-  // 4. PANGGIL DAFTAR (LIST)
+  // 5. PANGGIL DAFTAR (LIST)
   if (lowerText === 'panggil daftar' || lowerText === 'daftar' || lowerText === 'list') {
     const items = db.getAllItems();
     if (items.length === 0) {
       await sock.sendMessage(fromJid, {
         text: `📭 *Belum ada materi CPNS yang tersimpan.*\n\n` +
           `Gunakan format berikut untuk menyimpan materi pertama Anda:\n` +
-          `*save (judul panggilan) isi (penjelasan materinya)*`
+          `• Catatan teks: *save (judul) isi (penjelasannya)*\n` +
+          `• Berkas file: Kirim PDF/gambar dengan caption *save (judul)*`
       }, { quoted: msg });
       return;
     }
 
     let listText = `📚 *DAFTAR MATERI CPNS TERDATA (${items.length} Data)*\n`;
     listText += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    items.forEach((item, index) => {
-      listText += `*${item.id}.* ${item.callName}\n`;
+    items.forEach((item) => {
+      let icon = '📝';
+      let tagExtra = '';
+      if (item.type === 'file' && item.file) {
+        if (item.file.fileType === 'image') icon = '🖼️';
+        else if (item.file.fileType === 'video') icon = '🎬';
+        else if (item.file.fileType === 'audio') icon = '🎵';
+        else icon = '📄';
+        tagExtra = ` _[FILE: ${item.file.fileName}]_`;
+      }
+      listText += `*${item.id}.* ${icon} *${item.callName}*${tagExtra}\n`;
     });
     listText += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    listText += `💡 _Ketik langsung nama materi di atas (1-2 kata) atau ketik \`panggil <nomor>\` untuk membaca isinya._`;
+    listText += `💡 _Ketik nama materi di atas (1-4 kata) atau ketik \`panggil <nomor>\` untuk membaca/mengunduh file._`;
 
     await sock.sendMessage(fromJid, { text: listText }, { quoted: msg });
     return;
   }
 
-  // 5. SAVE / SIMPAN (CREATE / OVERWRITE)
+  // 6. SAVE / SIMPAN (TEKS & FILE)
   const saveMatch = parseSaveCommand(rawText);
   if (saveMatch) {
     try {
-      const result = db.saveItem(saveMatch.callName, saveMatch.content);
+      let fileData = null;
+
+      // Jika ada lampiran media (langsung atau dari pesan yang di-reply)
+      if (media) {
+        try {
+          await sock.sendMessage(fromJid, {
+            text: `⏳ _Sedang mengunduh dan menyimpan berkas ${media.fileName}..._`
+          }, { quoted: msg });
+
+          const buffer = await downloadMedia(media.mediaNode, media.mediaType);
+          fileData = db.saveMediaFile(buffer, media.fileName, media.mimetype, media.mediaType);
+        } catch (dlErr) {
+          console.error('[CPNS Media Download Error]:', dlErr.message);
+          await sock.sendMessage(fromJid, {
+            text: `⚠️ Gagal mengunduh berkas file: ${dlErr.message}. Menyimpan sebagai catatan biasa...`
+          }, { quoted: msg });
+        }
+      }
+
+      const result = db.saveItem(saveMatch.callName, saveMatch.content, fileData);
       const actionText = result.isNew ? 'Disimpan Baru' : 'Diperbarui (Timpa)';
-      const resp =
-        `✅ *Materi CPNS Berhasil ${actionText}!*\n\n` +
-        `🔢 *Nomor:* #${result.item.id}\n` +
-        `🏷️ *Nama Panggilan:* *${result.item.callName}*\n` +
-        `📝 *Isi:* \n${result.item.content}\n\n` +
-        `💡 _Panggil materi ini kapan saja dengan mengetik: *${result.item.callName}* atau *panggil ${result.item.id}*._`;
+
+      let resp = '';
+      if (result.item.type === 'file' && result.item.file) {
+        const sizeKb = (result.item.file.size / 1024).toFixed(1);
+        resp =
+          `✅ *Materi Berkas CPNS Berhasil ${actionText}!*\n\n` +
+          `🔢 *Nomor:* #${result.item.id}\n` +
+          `🏷️ *Nama Panggilan:* *${result.item.callName}*\n` +
+          `📎 *Nama Berkas:* \`${result.item.file.fileName}\`\n` +
+          `📦 *Ukuran:* ${sizeKb} KB\n` +
+          (result.item.content ? `📝 *Keterangan:* \n${result.item.content}\n\n` : '\n') +
+          `💡 _Panggil file ini kapan saja dengan mengetik: *${result.item.callName}* atau *panggil ${result.item.id}*._`;
+      } else {
+        resp =
+          `✅ *Materi CPNS Berhasil ${actionText}!*\n\n` +
+          `🔢 *Nomor:* #${result.item.id}\n` +
+          `🏷️ *Nama Panggilan:* *${result.item.callName}*\n` +
+          `📝 *Isi:* \n${result.item.content}\n\n` +
+          `💡 _Panggil materi ini kapan saja dengan mengetik: *${result.item.callName}* atau *panggil ${result.item.id}*._`;
+      }
 
       await sock.sendMessage(fromJid, { text: resp }, { quoted: msg });
     } catch (err) {
@@ -331,13 +595,7 @@ async function handleMessage(sock, msg) {
   if (panggilTarget && panggilTarget.toLowerCase() !== 'daftar') {
     const item = db.getItem(panggilTarget);
     if (item) {
-      const resp =
-        `📌 *[ #${item.id} - ${item.callName.toUpperCase()} ]*\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `${item.content}\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🕒 _Update: ${item.updatedAt}_`;
-      await sock.sendMessage(fromJid, { text: resp }, { quoted: msg });
+      await sendItemContent(sock, fromJid, item, msg);
       return;
     } else {
       await sock.sendMessage(fromJid, {
@@ -353,13 +611,7 @@ async function handleMessage(sock, msg) {
   if (words.length <= 4) {
     const item = db.getItem(rawText);
     if (item) {
-      const resp =
-        `📌 *[ #${item.id} - ${item.callName.toUpperCase()} ]*\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `${item.content}\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🕒 _Update: ${item.updatedAt}_`;
-      await sock.sendMessage(fromJid, { text: resp }, { quoted: msg });
+      await sendItemContent(sock, fromJid, item, msg);
       return;
     }
   }
