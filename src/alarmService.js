@@ -314,6 +314,43 @@ function formatScheduleDisplay(alarm) {
 }
 
 /**
+ * Menghitung timestamp milidetik (Epoch UTC) target berikutnya berdasarkan WIB (+07:00)
+ */
+function getNextOccurrenceEpochMs(alarm) {
+  const wib = getWibNow();
+  if (alarm.scheduleType === 'date') {
+    if (!alarm.targetDate || !alarm.time) return null;
+    return new Date(`${alarm.targetDate}T${alarm.time}:00+07:00`).getTime();
+  } else if (alarm.scheduleType === 'daily') {
+    let candidate = new Date(`${wib.dateStr}T${alarm.time}:00+07:00`).getTime();
+    if (Date.now() - candidate > 15 * 60 * 1000) {
+      const tomorrow = new Date(Date.UTC(wib.year, wib.month - 1, wib.day + 1));
+      const y = tomorrow.getUTCFullYear();
+      const m = String(tomorrow.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(tomorrow.getUTCDate()).padStart(2, '0');
+      candidate = new Date(`${y}-${m}-${d}T${alarm.time}:00+07:00`).getTime();
+    }
+    return candidate;
+  } else if (alarm.scheduleType === 'weekly') {
+    const diffDays = (alarm.dayOfWeek - wib.dayOfWeek + 7) % 7;
+    const targetD = new Date(Date.UTC(wib.year, wib.month - 1, wib.day + diffDays));
+    const y = targetD.getUTCFullYear();
+    const m = String(targetD.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(targetD.getUTCDate()).padStart(2, '0');
+    let candidate = new Date(`${y}-${m}-${d}T${alarm.time}:00+07:00`).getTime();
+    if (Date.now() - candidate > 15 * 60 * 1000) {
+      const nextWeekD = new Date(Date.UTC(wib.year, wib.month - 1, wib.day + diffDays + 7));
+      const ny = nextWeekD.getUTCFullYear();
+      const nm = String(nextWeekD.getUTCMonth() + 1).padStart(2, '0');
+      const nd = String(nextWeekD.getUTCDate()).padStart(2, '0');
+      candidate = new Date(`${ny}-${nm}-${nd}T${alarm.time}:00+07:00`).getTime();
+    }
+    return candidate;
+  }
+  return null;
+}
+
+/**
  * Core Alarm Worker Checker: Dijalankan berkala untuk mengecek & membunyikan alarm
  * Berbasis waktu WIB (Asia/Jakarta)
  */
@@ -323,32 +360,16 @@ async function checkAndTriggerAlarms(sock) {
   const data = loadAlarms();
   if (!data.alarms || data.alarms.length === 0) return;
 
-  const nowWib = getWibNow();
-  const todayStr = nowWib.dateStr;
-  const currentDayOfWeek = nowWib.dayOfWeek;
-  const currentTotalMinutes = nowWib.totalMinutes;
-
   let hasUpdates = false;
 
   for (const alarm of data.alarms) {
     if (!alarm.active) continue;
 
-    // 1. Cek apakah hari ini jadwalnya cocok
-    let isTodayScheduled = false;
-    if (alarm.scheduleType === 'date') {
-      isTodayScheduled = (alarm.targetDate === todayStr);
-    } else if (alarm.scheduleType === 'weekly') {
-      isTodayScheduled = (alarm.dayOfWeek === currentDayOfWeek);
-    } else if (alarm.scheduleType === 'daily') {
-      isTodayScheduled = true;
-    }
+    const targetMs = getNextOccurrenceEpochMs(alarm);
+    if (!targetMs) continue;
 
-    if (!isTodayScheduled) continue;
-
-    // 2. Hitung selisih menit dengan target waktu (target - sekarang)
-    const [targetH, targetM] = alarm.time.split(':').map(n => parseInt(n, 10));
-    const targetTotalMinutes = targetH * 60 + targetM;
-    const diffMinutes = targetTotalMinutes - currentTotalMinutes;
+    const diffMs = targetMs - Date.now();
+    const diffMinutes = Math.round(diffMs / 60000);
 
     // Tentukan tahapan alarm berdasarkan metode (tiap 15 menit)
     let stages = [];
@@ -379,11 +400,14 @@ async function checkAndTriggerAlarms(sock) {
 
     if (!Array.isArray(alarm.triggeredStages)) alarm.triggeredStages = [];
 
+    // Target date key untuk identifier stage unik (WIB)
+    const targetDateKey = new Date(targetMs + (7 * 3600 * 1000)).toISOString().slice(0, 10);
+
     // 3. Evaluasi setiap stage
     for (const st of stages) {
-      // Toleransi range selisih waktu: cocok jika diffMinutes tepat atau selisih 1 menit
-      const isMatched = (diffMinutes <= st.diff && diffMinutes >= st.diff - 1);
-      const stageKey = `${todayStr}_${st.stage}`;
+      // Toleransi range selisih waktu: cocok jika diffMinutes tepat atau selisih 1-2 menit
+      const isMatched = (diffMinutes <= st.diff && diffMinutes >= st.diff - 2);
+      const stageKey = `${targetDateKey}_${st.stage}`;
 
       if (isMatched && !alarm.triggeredStages.includes(stageKey)) {
         alarm.triggeredStages.push(stageKey);
