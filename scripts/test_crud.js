@@ -67,3 +67,62 @@ db.deleteItem('tiu silogisme');
 assert.strictEqual(db.getAllItems().length, 0);
 
 console.log('🎉 SEMUA TES LOGIKA CRUD CPNS (TEKS & FILE) BERHASIL 100%!');
+
+// ==========================================
+// PENGUJIAN ALARM SERVICE
+// ==========================================
+console.log('\n⏰ Memulai pengujian unit logika ALARM & PARSER...');
+const alarmService = require('../src/alarmService');
+
+// 1. Test Parser Pola Command
+const parsedCmd1 = alarmService.parseAlarmCommand('alarm (senin, 19:30) metode (3x) pesan (Tryout Akbar TIU)');
+assert(parsedCmd1 !== null);
+assert.strictEqual(parsedCmd1.scheduleRaw, 'senin, 19:30');
+assert.strictEqual(parsedCmd1.methodRaw, '3x');
+assert.strictEqual(parsedCmd1.message, 'Tryout Akbar TIU');
+
+const parsedCmd2 = alarmService.parseAlarmCommand('alarm 15-12-2026 08.00 metode 2x pesan Belajar TWK Bela Negara');
+assert(parsedCmd2 !== null);
+assert.strictEqual(parsedCmd2.methodRaw, '2x');
+
+// 2. Test Parser Schedule Waktu
+const schedWeekly = alarmService.parseSchedule('senin, 19:30');
+assert.strictEqual(schedWeekly.scheduleType, 'weekly');
+assert.strictEqual(schedWeekly.dayOfWeek, 1);
+assert.strictEqual(schedWeekly.time, '19:30');
+
+const schedDaily = alarmService.parseSchedule('setiap hari 20:00');
+assert.strictEqual(schedDaily.scheduleType, 'daily');
+assert.strictEqual(schedDaily.time, '20:00');
+
+const schedDate = alarmService.parseSchedule('25-12-2026 09:15');
+assert.strictEqual(schedDate.scheduleType, 'date');
+assert.strictEqual(schedDate.targetDate, '2026-12-25');
+assert.strictEqual(schedDate.time, '09:15');
+
+// 3. Test Create Alarm
+const newAlarm = alarmService.createAlarm({
+  targetJid: 'group123@g.us',
+  isGroup: true,
+  creatorJid: 'user123@s.whatsapp.net',
+  scheduleRaw: 'senin, 19:30',
+  message: 'Waktunya Belajar TIU Silogisme & Berhitung Cepat!',
+  methodRaw: '3x'
+});
+console.log('✅ Alarm Created:', newAlarm.id, newAlarm.scheduleRaw, newAlarm.method);
+assert(newAlarm.id > 0);
+assert.strictEqual(newAlarm.method, '3x');
+
+// 4. Test Get Alarm By JID
+const alarms = alarmService.getAlarmsByJid('group123@g.us');
+assert(alarms.length >= 1);
+assert(alarms.some(a => a.id === newAlarm.id));
+
+// 5. Test Delete Alarm
+const delAlarmRes = alarmService.deleteAlarm(newAlarm.id, 'group123@g.us');
+assert.strictEqual(delAlarmRes.success, true);
+const remaining = alarmService.getAlarmsByJid('group123@g.us');
+assert(!remaining.some(a => a.id === newAlarm.id));
+
+console.log('🎉 SEMUA TES LOGIKA ALARM SERVICE BERHASIL 100%!');
+

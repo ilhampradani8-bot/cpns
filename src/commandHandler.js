@@ -3,6 +3,7 @@ const path = require('path');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const db = require('./database');
 const whitelist = require('./whitelist');
+const alarmService = require('./alarmService');
 
 /**
  * Normalisasi teks input
@@ -414,12 +415,103 @@ async function handleMessage(sock, msg) {
       `• *edit isi [nama] isi [isi baru]*\n\n` +
       `*7. Hapus Materi / File (Delete)*\n` +
       `• *hapus [nama]* atau *hapus [nomor]*\n\n` +
-      `*8. Pengumuman Tag Semua (Admin Only)*\n` +
+      `*8. Alarm & Pengingat Belajar (Reminder)*\n` +
+      `• *alarm [jadwal] metode [2x/3x/4x] pesan [agenda]*\n` +
+      `_Contoh:_ \`alarm (senin, 19:30) metode (3x) pesan (Tryout Akbar TIU)\`\n` +
+      `• *daftar alarm* (Lihat jadwal alarm aktif)\n` +
+      `• *hapus alarm [ID]* (Hapus jadwal alarm)\n\n` +
+      `*9. Pengumuman Tag Semua (Admin Only)*\n` +
       `• *hidetag [pesan pengumuman]* atau reply pesan ketik *hidetag*\n\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💾 _Data & file tersimpan aman di penyimpanan permanen._`;
 
     await sock.sendMessage(fromJid, { text: helpMsg }, { quoted: msg });
+    return;
+  }
+
+  // 5. FITUR DAFTAR ALARM & HAPUS ALARM
+  if (lowerText === 'daftar alarm' || lowerText === 'list alarm' || lowerText === 'panggil alarm') {
+    const alarms = alarmService.getAlarmsByJid(fromJid);
+    if (!alarms || alarms.length === 0) {
+      await sock.sendMessage(fromJid, {
+        text: `⏰ *Belum ada alarm / pengingat yang aktif di sini.*\n\n` +
+          `Gunakan format berikut untuk menyetel alarm:\n` +
+          `*alarm (jadwal) metode (2x/3x/4x) pesan (isi pengingat)*\n\n` +
+          `_Contoh:_ \`alarm (senin, 19:30) metode (3x) pesan (Tryout Akbar TIU)\``
+      }, { quoted: msg });
+      return;
+    }
+
+    let resp = `⏰ *DAFTAR ALARM & PENGINGAT AKTIF (${alarms.length} Alarm)*\n`;
+    resp += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    alarms.forEach(a => {
+      const sched = alarmService.formatScheduleDisplay(a);
+      const meth = alarmService.getMethodLabel(a.method);
+      resp += `*ID #${a.id}* | *${a.message}*\n`;
+      resp += `• ${sched}\n`;
+      resp += `• Metode Notifikasi: *${meth}*\n\n`;
+    });
+    resp += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    resp += `💡 _Untuk membatalkan alarm, ketik: *hapus alarm <ID>*\n_Contoh:_ \`hapus alarm 1\``;
+
+    await sock.sendMessage(fromJid, { text: resp }, { quoted: msg });
+    return;
+  }
+
+  const delAlarmMatch = lowerText.match(/^(?:hapus\s*alarm|del\s*alarm|delete\s*alarm)\s+(\d+)$/i);
+  if (delAlarmMatch) {
+    const alarmId = delAlarmMatch[1];
+    const result = alarmService.deleteAlarm(alarmId, fromJid);
+    if (!result.success) {
+      await sock.sendMessage(fromJid, {
+        text: `⚠️ Alarm dengan ID #${alarmId} tidak ditemukan atau sudah tidak aktif.`
+      }, { quoted: msg });
+      return;
+    }
+
+    await sock.sendMessage(fromJid, {
+      text: `✅ *Alarm ID #${result.alarm.id} Berhasil Dihapus!*\n\n` +
+        `📢 Agenda: *${result.alarm.message}*\n` +
+        `⏰ Jadwal: ${alarmService.formatScheduleDisplay(result.alarm)}`
+    }, { quoted: msg });
+    return;
+  }
+
+  // 6. FITUR SETEL ALARM (alarm ... metode ... pesan ...)
+  const alarmMatch = alarmService.parseAlarmCommand(rawText);
+  if (alarmMatch) {
+    try {
+      const newAlarm = alarmService.createAlarm({
+        targetJid: fromJid,
+        isGroup,
+        creatorJid: senderJid,
+        scheduleRaw: alarmMatch.scheduleRaw,
+        message: alarmMatch.message,
+        methodRaw: alarmMatch.methodRaw
+      });
+
+      const schedDisplay = alarmService.formatScheduleDisplay(newAlarm);
+      const methodDisplay = alarmService.getMethodLabel(newAlarm.method);
+
+      const resp =
+        `✅ *ALARM PENGINGAT BERHASIL DISETEL!*\n\n` +
+        `🔢 *ID Alarm:* #${newAlarm.id}\n` +
+        `📢 *Agenda:* *${newAlarm.message}*\n` +
+        `⏰ *Jadwal:* ${schedDisplay}\n` +
+        `🔔 *Metode Notifikasi:* *${methodDisplay}*\n\n` +
+        `💡 _Bot akan otomatis mengirimkan pengingat bertahap sesuai metode yang dipilih._\n` +
+        `_Ketik *daftar alarm* untuk melihat list atau *hapus alarm ${newAlarm.id}* untuk membatalkan._`;
+
+      await sock.sendMessage(fromJid, { text: resp }, { quoted: msg });
+    } catch (err) {
+      await sock.sendMessage(fromJid, {
+        text: `❌ Gagal menyetel alarm: ${err.message}\n\n` +
+          `*Format Contoh:*\n` +
+          `• \`alarm (senin, 19:30) metode (3x) pesan (Tryout Akbar TIU)\`\n` +
+          `• \`alarm (15-11-2026, 08:00) metode (2x) pesan (Ujian SKD CPNS)\`\n` +
+          `• \`alarm (19:30) metode (3x) pesan (Belajar Soal TWK)\``
+      }, { quoted: msg });
+    }
     return;
   }
 

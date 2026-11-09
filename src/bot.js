@@ -10,6 +10,7 @@ const fs = require('fs');
 const readline = require('readline');
 const qrcode = require('qrcode-terminal');
 const { handleMessage } = require('./commandHandler');
+const alarmService = require('./alarmService');
 
 // Anti-crash
 process.on('uncaughtException', (err) => {
@@ -136,6 +137,8 @@ async function startBot() {
       console.log(`🆔 ID Bot: ${sock.user?.id || 'Connected'}`);
       console.log('🤖 Menunggu perintah CRUD di grup CPNS / testing pribadi...');
       console.log('----------------------------------------------');
+      // Aktifkan background alarm scheduler
+      alarmService.startAlarmWorker(sock);
     }
   });
 
