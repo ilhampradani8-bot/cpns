@@ -1,4 +1,21 @@
 {
-  "nextId": 1,
-  "alarms": []
+  "nextId": 2,
+  "alarms": [
+    {
+      "id": 1,
+      "targetJid": "120363412342177283@g.us",
+      "isGroup": true,
+      "creatorJid": "6288971071138@s.whatsapp.net",
+      "scheduleRaw": "11-11-2026 01:30",
+      "scheduleType": "date",
+      "targetDate": "2026-11-11",
+      "dayOfWeek": null,
+      "time": "01:30",
+      "method": "3x",
+      "message": "BELAJAR RUTIN SKD CPNS - GABOLEH PANCEEEEEEEEEEEEEEEE",
+      "active": true,
+      "triggeredStages": [],
+      "createdAt": "9/11/2026, 19.55.23"
+    }
+  ]
 }
