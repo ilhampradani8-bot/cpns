@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '../data');
+const PRIMARY_DATA_DIR = '/root/CPNS/data';
+const FALLBACK_DATA_DIR = path.join(__dirname, '../../data/cpns');
+const DATA_DIR = fs.existsSync(PRIMARY_DATA_DIR) ? PRIMARY_DATA_DIR : (fs.existsSync(FALLBACK_DATA_DIR) ? FALLBACK_DATA_DIR : path.join(__dirname, '../data'));
 const ALARM_PATH = path.join(DATA_DIR, 'alarm_data.json');
 
 const DAYS_NAME = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -16,6 +18,14 @@ function loadAlarms() {
     if (fs.existsSync(ALARM_PATH)) {
       const parsed = JSON.parse(fs.readFileSync(ALARM_PATH, 'utf-8'));
       if (Array.isArray(parsed.alarms)) return parsed;
+    }
+    const fallbackPath = path.join(FALLBACK_DATA_DIR, 'alarm_data.json');
+    if (fs.existsSync(fallbackPath)) {
+      const parsed = JSON.parse(fs.readFileSync(fallbackPath, 'utf-8'));
+      if (Array.isArray(parsed.alarms)) {
+        saveAlarms(parsed);
+        return parsed;
+      }
     }
   } catch (err) {
     console.error('[AlarmService] Gagal membaca data alarm:', err.message);
@@ -37,18 +47,55 @@ function saveAlarms(data) {
   }
 }
 
-function getWibDate() {
-  const now = new Date();
-  const wibStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
-  return new Date(wibStr);
+/**
+ * Mendapatkan waktu sekarang dalam zona waktu Asia/Jakarta (WIB) secara presisi 100%
+ * Mengabaikan perbedaan zona waktu host mesin (misal UTM Malaysia UTC+8 atau VPS UTC+0).
+ */
+function getWibNow() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const parts = formatter.formatToParts(new Date());
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  const dayFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', weekday: 'short' });
+  const dayStr = dayFormatter.format(new Date());
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayOfWeek = days.indexOf(dayStr);
+
+  const year = parseInt(map.year, 10);
+  const month = parseInt(map.month, 10);
+  const day = parseInt(map.day, 10);
+  const hour = parseInt(map.hour, 10);
+  const minute = parseInt(map.minute, 10);
+
+  const dateStr = `${map.year}-${map.month}-${map.day}`;
+  const timeStr = `${map.hour}:${map.minute}`;
+  const totalMinutes = hour * 60 + minute;
+
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    dayOfWeek,
+    dateStr,
+    timeStr,
+    totalMinutes
+  };
 }
 
 function getTodayWibString() {
-  const w = getWibDate();
-  const y = w.getFullYear();
-  const m = String(w.getMonth() + 1).padStart(2, '0');
-  const d = String(w.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return getWibNow().dateStr;
 }
 
 /**
@@ -111,12 +158,12 @@ function parseSchedule(scheduleRaw) {
     }
   } else if (isTomorrow) {
     scheduleType = 'date';
-    const tomorrow = getWibDate();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const y = tomorrow.getFullYear();
-    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
-    const d = String(tomorrow.getDate()).padStart(2, '0');
-    targetDate = `${y}-${m}-${d}`;
+    const wib = getWibNow();
+    const d = new Date(Date.UTC(wib.year, wib.month - 1, wib.day + 1));
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    targetDate = `${y}-${m}-${day}`;
   } else if (dayOfWeek !== null) {
     scheduleType = 'weekly';
   } else if (isDaily) {
@@ -184,9 +231,9 @@ function getMethodLabel(method) {
   switch (method) {
     case '1x': return '1x (Tepat Waktu)';
     case '2x': return '2x (H-15m & Tepat Waktu)';
-    case '3x': return '3x (H-30m, H-10m, & Tepat Waktu)';
-    case '4x': return '4x (H-1 Jam, H-30m, H-10m, & Tepat Waktu)';
-    default: return '3x (H-30m, H-10m, & Tepat Waktu)';
+    case '3x': return '3x (H-30m, H-15m & Tepat Waktu)';
+    case '4x': return '4x (H-45m, H-30m, H-15m & Tepat Waktu)';
+    default: return '3x (H-30m, H-15m & Tepat Waktu)';
   }
 }
 
@@ -224,21 +271,23 @@ function createAlarm({ targetJid, isGroup, creatorJid, scheduleRaw, message, met
 
   data.alarms.push(newAlarm);
   saveAlarms(data);
-
   return newAlarm;
 }
 
 /**
- * Hapus alarm berdasarkan ID
+ * Hapus / Batalkan alarm berdasarkan ID dan targetJid
  */
-function deleteAlarm(alarmId, targetJid) {
+function deleteAlarm(id, targetJid) {
   const data = loadAlarms();
-  const idx = data.alarms.findIndex(a => a.id === parseInt(alarmId, 10) && (a.targetJid === targetJid || !targetJid));
-  if (idx === -1) return { success: false, reason: 'not_found' };
+  const numId = parseInt(id, 10);
+  const index = data.alarms.findIndex(a => a.id === numId && a.targetJid === targetJid);
+  if (index === -1) {
+    return { success: false, message: `Alarm dengan ID #${id} tidak ditemukan.` };
+  }
 
-  const removed = data.alarms.splice(idx, 1)[0];
+  const deleted = data.alarms.splice(index, 1)[0];
   saveAlarms(data);
-  return { success: true, alarm: removed };
+  return { success: true, alarm: deleted };
 }
 
 /**
@@ -246,15 +295,16 @@ function deleteAlarm(alarmId, targetJid) {
  */
 function getAlarmsByJid(targetJid) {
   const data = loadAlarms();
-  return data.alarms.filter(a => a.active && (!targetJid || a.targetJid === targetJid));
+  return data.alarms.filter(a => a.targetJid === targetJid && a.active);
 }
 
 /**
- * Format teks jadwal untuk tampilan pengguna
+ * Format string display jadwal
  */
 function formatScheduleDisplay(alarm) {
   if (alarm.scheduleType === 'date') {
-    return `📅 Tanggal: ${alarm.targetDate} Pukul ${alarm.time} WIB`;
+    const [y, m, d] = (alarm.targetDate || '').split('-');
+    return `📅 ${d}/${m}/${y} Pukul ${alarm.time} WIB`;
   } else if (alarm.scheduleType === 'weekly') {
     const dayName = DAYS_NAME[alarm.dayOfWeek] || 'Hari';
     return `🔄 Setiap Hari ${dayName} Pukul ${alarm.time} WIB`;
@@ -265,6 +315,7 @@ function formatScheduleDisplay(alarm) {
 
 /**
  * Core Alarm Worker Checker: Dijalankan berkala untuk mengecek & membunyikan alarm
+ * Berbasis waktu WIB (Asia/Jakarta)
  */
 async function checkAndTriggerAlarms(sock) {
   if (!sock) return;
@@ -272,12 +323,10 @@ async function checkAndTriggerAlarms(sock) {
   const data = loadAlarms();
   if (!data.alarms || data.alarms.length === 0) return;
 
-  const nowWib = getWibDate();
-  const todayStr = getTodayWibString();
-  const currentDayOfWeek = nowWib.getDay();
-  const currentHour = nowWib.getHours();
-  const currentMinute = nowWib.getMinutes();
-  const currentTotalMinutes = currentHour * 60 + currentMinute;
+  const nowWib = getWibNow();
+  const todayStr = nowWib.dateStr;
+  const currentDayOfWeek = nowWib.dayOfWeek;
+  const currentTotalMinutes = nowWib.totalMinutes;
 
   let hasUpdates = false;
 
@@ -296,12 +345,12 @@ async function checkAndTriggerAlarms(sock) {
 
     if (!isTodayScheduled) continue;
 
-    // 2. Hitung selisih menit dengan target waktu
+    // 2. Hitung selisih menit dengan target waktu (target - sekarang)
     const [targetH, targetM] = alarm.time.split(':').map(n => parseInt(n, 10));
     const targetTotalMinutes = targetH * 60 + targetM;
     const diffMinutes = targetTotalMinutes - currentTotalMinutes;
 
-    // Tentukan tahapan alarm berdasarkan metode
+    // Tentukan tahapan alarm berdasarkan metode (tiap 15 menit)
     let stages = [];
     if (alarm.method === '1x') {
       stages = [
@@ -314,16 +363,16 @@ async function checkAndTriggerAlarms(sock) {
       ];
     } else if (alarm.method === '4x') {
       stages = [
-        { stage: 'h-60', diff: 60, label: 'H-1 JAM' },
+        { stage: 'h-45', diff: 45, label: 'H-45 MENIT' },
         { stage: 'h-30', diff: 30, label: 'H-30 MENIT' },
-        { stage: 'h-10', diff: 10, label: 'H-10 MENIT' },
+        { stage: 'h-15', diff: 15, label: 'H-15 MENIT' },
         { stage: 'h-0', diff: 0, label: 'WAKTU TIBA' }
       ];
     } else {
-      // Default 3x
+      // Default 3x (setiap 15 menit)
       stages = [
         { stage: 'h-30', diff: 30, label: 'H-30 MENIT' },
-        { stage: 'h-10', diff: 10, label: 'H-10 MENIT' },
+        { stage: 'h-15', diff: 15, label: 'H-15 MENIT' },
         { stage: 'h-0', diff: 0, label: 'WAKTU TIBA' }
       ];
     }
@@ -332,8 +381,8 @@ async function checkAndTriggerAlarms(sock) {
 
     // 3. Evaluasi setiap stage
     for (const st of stages) {
-      // Toleransi range selisih waktu 0..1 menit
-      const isMatched = (diffMinutes === st.diff || (diffMinutes <= st.diff && diffMinutes >= st.diff - 1));
+      // Toleransi range selisih waktu: cocok jika diffMinutes tepat atau selisih 1 menit
+      const isMatched = (diffMinutes <= st.diff && diffMinutes >= st.diff - 1);
       const stageKey = `${todayStr}_${st.stage}`;
 
       if (isMatched && !alarm.triggeredStages.includes(stageKey)) {
@@ -348,34 +397,37 @@ async function checkAndTriggerAlarms(sock) {
             try {
               const meta = await sock.groupMetadata(alarm.targetJid);
               const botNum = (sock.user?.id || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
-              mentions = (meta.participants || []).map(p => p.id).filter(j => !j.includes(botNum));
+              mentions = (meta.participants || [])
+                .map(p => p.id)
+                .filter(id => !id.includes(botNum));
             } catch (_) {}
           }
 
-          let alertText = '';
-          if (isMainAlert) {
-            alertText =
-              `⏰ *ALARM CPNS BERBUNYI! (${st.label})*\n` +
-              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-              `⏱️ *Waktu:* ${alarm.time} WIB\n` +
-              `📢 *Agenda Pengingat:* \n` +
-              `*${alarm.message}*\n` +
-              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-              `🔔 _Waktu kegiatan telah tiba. Harap segera bersiap dan berkumpul!_`;
+          let stageNotice = '';
+          if (st.stage === 'h-45') stageNotice = '⚠️ *[PENGINGAT H-45 MENIT]*';
+          else if (st.stage === 'h-30') stageNotice = '⚠️ *[PENGINGAT H-30 MENIT]*';
+          else if (st.stage === 'h-15') stageNotice = '⏳ *[PENGINGAT H-15 MENIT]*';
+          else stageNotice = '🚨 *[WAKTU BELAJAR TIBA!]*';
+
+          let alertText =
+            `⏰ *[ALARM JADWAL BELAJAR CPNS]*\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `${stageNotice}\n\n` +
+            `📝 *Agenda / Catatan:*\n` +
+            `"${alarm.message}"\n\n` +
+            `⏰ Waktu Target: *${alarm.time} WIB*\n` +
+            `🔔 Metode: *${getMethodLabel(alarm.method)}*\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+          if (isMainAlert && mentions.length > 0) {
+            alertText += `📢 _Panggilan belajar untuk seluruh anggota grup!_ ✨\n`;
           } else {
-            alertText =
-              `⏳ *PENGINGAT AWAL CPNS (${st.label})*\n` +
-              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-              `⏱️ *Target Waktu:* ${alarm.time} WIB (Kurang ~${st.diff} menit lagi)\n` +
-              `📢 *Agenda:* \n` +
-              `*${alarm.message}*\n` +
-              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-              `💡 _Pemberitahuan awal tahap ${st.label}. Siapkan materi Anda!_`;
+            alertText += `💡 _Bersiap dan siapkan modul materi Anda!_ 🚀\n`;
           }
 
           await sock.sendMessage(alarm.targetJid, {
             text: alertText,
-            mentions: mentions.length ? mentions : undefined
+            mentions: mentions.length > 0 ? mentions : undefined
           });
 
           console.log(`[Alarm Triggered] ID #${alarm.id} (${st.label}) -> ${alarm.targetJid}`);
@@ -419,5 +471,6 @@ module.exports = {
   checkAndTriggerAlarms,
   startAlarmWorker,
   loadAlarms,
+  getWibNow,
   DAYS_NAME
 };
