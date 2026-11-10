@@ -64,29 +64,29 @@ function formatAlertMessage(article) {
 function formatDigestMessage(articles) {
   const wibTime = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta',
-    dateStyle: 'medium',
+    dateStyle: 'full',
     timeStyle: 'short'
   });
 
   let msg =
-    `📢 *GOOGLE ALERTS: RANGKUMAN BERITA CPNS HARI INI*\n` +
+    `📢 *GOOGLE ALERTS: RANGKUMAN HARIAN BERITA CPNS*\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📅 *Waktu Update:* ${wibTime} WIB\n` +
-    `📊 *Total Berita Baru:* ${articles.length} Artikel\n` +
+    `📅 *Edisi Harian:* ${wibTime} WIB\n` +
+    `📊 *Total Update:* ${articles.length} Artikel Terpilih\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   articles.slice(0, 4).forEach((art, index) => {
     const summary = art.ai_summary || art.summary || '';
     msg += `📌 *${index + 1}. ${art.title}*\n`;
     if (summary) {
-      msg += `💡 *Poin Utama (AI Summary):*\n${summary}\n`;
+      msg += `💡 *Rangkuman Mendalam (AI Groq):*\n${summary}\n`;
     }
-    msg += `🔗 ${art.url}\n\n`;
+    msg += `🔗 *Sumber Resmi:* ${art.url}\n\n`;
   });
 
   msg +=
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `_Asisten CPNS Hub • Rangkuman AI Groq 24/7_`;
+    `_Asisten CPNS Hub • Edisi Harian Otomatis 24/7_`;
 
   return msg;
 }
