@@ -43,11 +43,11 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
 | Perintah | Format Contoh | Deskripsi |
 | :--- | :--- | :--- |
 | **Registrasi Grup / Test** | `daftar cpns` | Ketik di grup untuk mendaftarkan grup CPNS, atau ketik di DM pribadi untuk testing. |
-| **Kuis Soal Acak (Random)** | `soal random` atau `kuis` | Mengambil 1 soal acak dari bank soal lengkap (TIU/TWK/TKP) dengan opsi A–E. |
-| **Kuis Khusus TIU** | `soal tiu` | Memunculkan latihan soal TIU (Hitung, Silogisme, Analitis, Deret). |
-| **Kuis Khusus TWK** | `soal twk` | Memunculkan latihan soal TWK (Pancasila, UUD 1945, Pilar Negara, Sejarah). |
-| **Kuis Khusus TKP** | `soal tkp` | Memunculkan latihan soal TKP dengan sistem penilaian poin skala 1–5. |
-| **Menjawab Soal Kuis** | Ketik `A` / `B` / `C` / `D` / `E` | Bot langsung mengevaluasi jawaban, menampilkan kunci jawaban & pembahasannya. |
+| **Kuis Soal Acak (Random)** | `soal random` atau `soal random 5` | Mengambil 1 atau sejumlah soal acak dari bank soal lengkap (TIU/TWK/TKP). |
+| **Kuis Khusus TIU** | `soal tiu` atau `soal tiu 5` | Memunculkan latihan soal TIU (bisa tentukan jumlah soal, misal: `soal tiu 5`). |
+| **Kuis Khusus TWK** | `soal twk` atau `soal twk 5` | Memunculkan latihan soal TWK (Pancasila, UUD 1945, Pilar Negara, Sejarah). |
+| **Kuis Khusus TKP** | `soal tkp` atau `soal tkp 5` | Memunculkan latihan soal TKP dengan sistem penilaian poin skala 1–5. |
+| **Menjawab Soal Kuis** | Ketik `A` / `B` / `C` / `D` / `E` | Bot langsung mengevaluasi jawaban, lanjut ke soal berikutnya, & rekap skor akhir. |
 | **Statistik Bank Soal** | `stats kuis` atau `info kuis` | Menampilkan total ribuan soal yang siap digunakan per kategori. |
 | **Batalkan Kuis** | `batal kuis` | Menghentikan sesi soal yang sedang aktif. |
 | **Simpan Catatan Teks** | `save (twk pancasila) isi (Pancasila adalah dasar filosofis...)` | Menyimpan materi baru berupa teks catatan. |

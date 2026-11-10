@@ -200,6 +200,33 @@ function parsePanggilCommand(text) {
 }
 
 /**
+ * Ekstraksi kuis soal:
+ * soal tiu 5, soal tiu (5), soal tiu, soal random 5, soal 5, kuis twk 3
+ */
+function parseQuizCommand(text) {
+  const clean = text.trim();
+  const m = clean.match(/^(?:soal|kuis)(?:\s+(random|acak|tiu|twk|tkp))?(?:\s+(?:[\(\[]?(\d+)[\)\]]?))?$/i);
+  if (m && (clean.toLowerCase() === 'soal' || clean.toLowerCase() === 'kuis' || m[1] || m[2])) {
+    let cat = m[1] ? m[1].toUpperCase() : null;
+    if (cat === 'RANDOM' || cat === 'ACAK') cat = null;
+    return {
+      category: cat,
+      count: m[2] ? parseInt(m[2], 10) : 1
+    };
+  }
+  const m2 = clean.match(/^(?:soal|kuis)\s+(?:[\(\[]?(\d+)[\)\]]?)(?:\s+(random|acak|tiu|twk|tkp))?$/i);
+  if (m2) {
+    let cat = m2[2] ? m2[2].toUpperCase() : null;
+    if (cat === 'RANDOM' || cat === 'ACAK') cat = null;
+    return {
+      category: cat,
+      count: parseInt(m2[1], 10)
+    };
+  }
+  return null;
+}
+
+/**
  * Helper pengiriman konten materi (Teks atau Berkas File)
  */
 async function sendItemContent(sock, fromJid, item, msg) {
@@ -414,23 +441,17 @@ async function handleMessage(sock, msg) {
   }
 
   // === FITUR PEMANGGIL KUIS SOAL CPNS ===
-  const quizTriggerMatch = lowerText.match(/^(?:soal|kuis)(?:\s+(random|acak|tiu|twk|tkp))?$/i);
-  if (quizTriggerMatch) {
-    let cat = quizTriggerMatch[1] ? quizTriggerMatch[1].toLowerCase() : null;
-    let targetCat = null;
-    if (cat === 'tiu') targetCat = 'TIU';
-    else if (cat === 'twk') targetCat = 'TWK';
-    else if (cat === 'tkp') targetCat = 'TKP';
-
-    const question = quizService.startQuiz(fromJid, targetCat);
-    if (!question) {
+  const quizCmd = parseQuizCommand(rawText);
+  if (quizCmd) {
+    const sessionRes = quizService.startQuiz(fromJid, quizCmd.category, quizCmd.count);
+    if (!sessionRes) {
       await sock.sendMessage(fromJid, {
         text: '⚠️ Maaf, bank soal sedang disiapkan atau tidak ditemukan untuk kategori tersebut.\nSilakan coba lagi sebentar lagi.'
       }, { quoted: msg });
       return;
     }
 
-    const qText = quizService.formatQuestionMessage(question);
+    const qText = quizService.formatQuestionMessage(sessionRes.question, sessionRes.currentIndex, sessionRes.total);
     await sock.sendMessage(fromJid, { text: qText }, { quoted: msg });
     return;
   }
@@ -464,10 +485,11 @@ async function handleMessage(sock, msg) {
       `📖 *PANDUAN PERINTAH BOT CPNS*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
       `🎯 *MODE LATIHAN SOAL / KUIS (NEW)*\n` +
-      `• *soal random* / *kuis* : Munculkan 1 soal acak\n` +
-      `• *soal tiu* : Latihan khusus TIU (Hitung, Logika, Verbal)\n` +
-      `• *soal twk* : Latihan khusus TWK (Pancasila, UUD, Sejarah)\n` +
-      `• *soal tkp* : Latihan khusus TKP (Skala 1-5 poin)\n` +
+      `• *soal tiu (jumlah)* : Latihan TIU sejumlah tertentu (contoh: \`soal tiu 5\`)\n` +
+      `• *soal twk (jumlah)* : Latihan TWK sejumlah tertentu (contoh: \`soal twk 5\`)\n` +
+      `• *soal tkp (jumlah)* : Latihan TKP sejumlah tertentu (contoh: \`soal tkp 5\`)\n` +
+      `• *soal random (jumlah)* : Latihan acak campuran (contoh: \`soal random 5\`)\n` +
+      `• _Ketik tanpa angka (contoh: \`soal tiu\`) otomatis 1 soal drilling._\n` +
       `• *stats kuis* : Lihat total bank soal yang tersedia\n` +
       `• *batal kuis* : Menghentikan kuis yang sedang aktif\n` +
       `_Cara jawab: Cukup ketik huruf pilihan, contoh:_ \`A\` _atau_ \`jawab C\`\n\n` +

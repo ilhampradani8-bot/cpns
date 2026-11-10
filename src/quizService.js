@@ -39,7 +39,6 @@ function loadQuestions(forceReload = false) {
     try {
       const sample = JSON.parse(fs.readFileSync(SAMPLE_PATH, 'utf-8'));
       if (Array.isArray(sample)) {
-        // Merge without duplicating IDs
         const existingIds = new Set(list.map(q => q.id));
         for (const q of sample) {
           if (!existingIds.has(q.id)) {
@@ -65,10 +64,11 @@ function loadQuestions(forceReload = false) {
 }
 
 /**
- * Get random question, optionally filtered by category
+ * Get multiple random unique questions, optionally filtered by category
  * @param {string} category - 'TWK', 'TIU', 'TKP', or null
+ * @param {number} count - number of questions to pick
  */
-function getRandomQuestion(category = null) {
+function getRandomQuestions(category = null, count = 1) {
   const all = loadQuestions();
   let pool = all;
 
@@ -78,38 +78,53 @@ function getRandomQuestion(category = null) {
   }
 
   if (!pool || pool.length === 0) {
-    // If no filtered question found, fall back to all
     pool = all;
   }
 
-  if (pool.length === 0) return null;
+  if (pool.length === 0) return [];
 
-  const randomIndex = Math.floor(Math.random() * pool.length);
-  return pool[randomIndex];
+  // Shuffle pool using Fisher-Yates
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  const safeCount = Math.min(Math.max(1, count), shuffled.length, 25);
+  return shuffled.slice(0, safeCount);
 }
 
 /**
  * Start a new quiz in a chat JID
+ * @param {string} jid
+ * @param {string} category - 'TWK', 'TIU', 'TKP', or null
+ * @param {number} count - number of questions (default: 1)
  */
-function startQuiz(jid, category = null) {
-  // Clear any existing active session timer
+function startQuiz(jid, category = null, count = 1) {
+  // Clear any existing active session
   if (activeSessions.has(jid)) {
     const existing = activeSessions.get(jid);
     if (existing.timer) clearTimeout(existing.timer);
     activeSessions.delete(jid);
   }
 
-  const question = getRandomQuestion(category);
-  if (!question) return null;
+  const questions = getRandomQuestions(category, count);
+  if (!questions || questions.length === 0) return null;
 
   const session = {
     jid,
-    question,
-    startedAt: Date.now(),
-    answered: false
+    category,
+    questions,
+    currentIndex: 0,
+    total: questions.length,
+    scoreCorrect: 0,
+    tkpTotalScore: 0,
+    tkpMaxScore: 0,
+    answers: [],
+    startedAt: Date.now()
   };
 
-  // Set timeout to auto-expire after 3 minutes
+  // Auto-expire after 3 minutes if no response
   session.timer = setTimeout(() => {
     if (activeSessions.get(jid) === session) {
       activeSessions.delete(jid);
@@ -117,7 +132,11 @@ function startQuiz(jid, category = null) {
   }, 180000);
 
   activeSessions.set(jid, session);
-  return question;
+  return {
+    question: questions[0],
+    currentIndex: 1,
+    total: session.total
+  };
 }
 
 /**
@@ -134,7 +153,7 @@ function submitAnswer(jid, rawAnswer, senderName = 'Peserta') {
   const session = activeSessions.get(jid);
   if (!session) return { error: 'NO_ACTIVE_QUIZ' };
 
-  const q = session.question;
+  const q = session.questions[session.currentIndex];
   const userLetter = String(rawAnswer || '').trim().toUpperCase();
 
   // Validate answer option
@@ -142,49 +161,83 @@ function submitAnswer(jid, rawAnswer, senderName = 'Peserta') {
     return { error: 'INVALID_OPTION' };
   }
 
-  // Clear timer & session
-  if (session.timer) clearTimeout(session.timer);
-  activeSessions.delete(jid);
-
   const isTkp = q.kategori === 'TKP';
+  let score = 0;
 
   if (isTkp) {
     const pointsMap = q.skor_tkp || {};
-    let score = 0;
-    // Find points for chosen letter
     for (const [pts, letter] of Object.entries(pointsMap)) {
       if (letter === userLetter) {
         score = parseInt(pts, 10);
         break;
       }
     }
-    // Fallback if not mapped
     if (score === 0) {
       score = (userLetter === q.kunci) ? 5 : 3;
     }
-
-    return {
-      success: true,
-      isTkp: true,
-      userAnswer: userLetter,
-      bestAnswer: q.kunci,
-      score,
-      maxScore: 5,
-      senderName,
-      question: q
-    };
+    session.tkpTotalScore += score;
+    session.tkpMaxScore += 5;
+  } else {
+    if (userLetter === q.kunci) {
+      session.scoreCorrect++;
+    }
   }
 
-  // Standard TWK / TIU (Right or Wrong)
   const isCorrect = (userLetter === q.kunci);
-  return {
-    success: true,
-    isTkp: false,
+  const currentResult = {
+    isTkp,
     isCorrect,
     userAnswer: userLetter,
     correctAnswer: q.kunci,
+    bestAnswer: q.kunci,
+    score,
     senderName,
-    question: q
+    question: q,
+    currentIndex: session.currentIndex + 1,
+    total: session.total
+  };
+
+  session.answers.push(currentResult);
+  session.currentIndex++;
+
+  // Cek apakah masih ada soal berikutnya dalam paket ini
+  if (session.currentIndex < session.total) {
+    // Reset timer untuk soal berikutnya (3 menit)
+    if (session.timer) clearTimeout(session.timer);
+    session.timer = setTimeout(() => {
+      if (activeSessions.get(jid) === session) {
+        activeSessions.delete(jid);
+      }
+    }, 180000);
+
+    const nextQ = session.questions[session.currentIndex];
+    return {
+      success: true,
+      finished: false,
+      currentResult,
+      nextQuestion: nextQ,
+      nextIndex: session.currentIndex + 1,
+      total: session.total
+    };
+  }
+
+  // Sesi paket soal sudah selesai semua!
+  if (session.timer) clearTimeout(session.timer);
+  activeSessions.delete(jid);
+
+  return {
+    success: true,
+    finished: true,
+    currentResult,
+    summary: {
+      total: session.total,
+      scoreCorrect: session.scoreCorrect,
+      scorePct: Math.round((session.scoreCorrect / session.total) * 100),
+      isTkp,
+      tkpTotalScore: session.tkpTotalScore,
+      tkpMaxScore: session.tkpMaxScore,
+      senderName
+    }
   };
 }
 
@@ -204,9 +257,11 @@ function cancelQuiz(jid) {
 /**
  * Format question for WhatsApp message
  */
-function formatQuestionMessage(q, totalQuestions = 0) {
+function formatQuestionMessage(q, currentIndex = 1, total = 1) {
   const catBadge = q.kategori ? `[ ${q.kategori.toUpperCase()} ]` : '[ SKD CPNS ]';
-  let msg = `🎯 *KUIS DRILLING CPNS* ${catBadge}\n`;
+  const progressBadge = total > 1 ? ` *(Soal ${currentIndex} dari ${total})*` : '';
+
+  let msg = `🎯 *KUIS DRILLING CPNS* ${catBadge}${progressBadge}\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
   msg += `❓ *Pertanyaan:*\n${q.pertanyaan}\n\n`;
   msg += `*Pilihan Jawaban:*\n`;
@@ -221,39 +276,69 @@ function formatQuestionMessage(q, totalQuestions = 0) {
   msg += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   msg += `💡 *Cara Menjawab:*\n`;
   msg += `Ketik huruf pilihanmu, misal: *A* atau *jawab A*\n`;
-  msg += `⏱️ _Waktu menjawab: 3 menit_`;
+  msg += `⏱️ _Waktu: 3 menit_`;
 
   return msg;
 }
 
 /**
- * Format answer result message
+ * Format answer result message & next step
  */
-function formatResultMessage(result) {
-  const q = result.question;
+function formatResultMessage(resObj) {
+  const cur = resObj.currentResult || resObj;
+  const q = cur.question;
   let msg = '';
 
-  if (result.isTkp) {
-    const stars = '⭐'.repeat(result.score);
-    msg += `📊 *HASIL JAWABAN TKP (${result.senderName})*\n`;
+  const progressHeader = cur.total > 1 ? ` (Nomor ${cur.currentIndex}/${cur.total})` : '';
+
+  if (cur.isTkp) {
+    const stars = '⭐'.repeat(cur.score);
+    msg += `📊 *HASIL JAWABAN TKP${progressHeader}* - *${cur.senderName}*\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-    msg += `Pilihan Kamu: *${result.userAnswer}*\n`;
-    msg += `🎖️ *Perolehan Poin:* *${result.score} / 5* ${stars}\n`;
-    msg += `Jawaban Poin Maksimal (5): *${result.bestAnswer}*\n\n`;
-  } else if (result.isCorrect) {
-    msg += `🎉 *JAWABAN BENAR!* (${result.senderName})\n`;
+    msg += `Pilihan Kamu: *${cur.userAnswer}*\n`;
+    msg += `🎖️ *Perolehan Poin:* *${cur.score} / 5* ${stars}\n`;
+    msg += `Jawaban Poin Maksimal (5): *${cur.bestAnswer}*\n\n`;
+  } else if (cur.isCorrect) {
+    msg += `🎉 *JAWABAN BENAR!${progressHeader}* - *${cur.senderName}*\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-    msg += `Jawaban Kamu: *${result.userAnswer}* (Tepat!)\n`;
-    msg += `Kunci Jawaban: *${result.correctAnswer}*\n\n`;
+    msg += `Jawaban Kamu: *${cur.userAnswer}* (Tepat!)\n`;
+    msg += `Kunci Jawaban: *${cur.correctAnswer}*\n\n`;
   } else {
-    msg += `❌ *JAWABAN KURANG TEPAT!* (${result.senderName})\n`;
+    msg += `❌ *JAWABAN KURANG TEPAT!${progressHeader}* - *${cur.senderName}*\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-    msg += `Jawaban Kamu: *${result.userAnswer}*\n`;
-    msg += `Kunci Jawaban yang Benar: *${result.correctAnswer}*\n\n`;
+    msg += `Jawaban Kamu: *${cur.userAnswer}*\n`;
+    msg += `Kunci Jawaban yang Benar: *${cur.correctAnswer}*\n\n`;
   }
 
   if (q.pembahasan) {
     msg += `📖 *Pembahasan:*\n${q.pembahasan}\n\n`;
+  }
+
+  // Jika paket belum selesai dan ada soal berikutnya
+  if (!resObj.finished && resObj.nextQuestion) {
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `▶️ *LANJUT KE SOAL BERIKUTNYA...*\n\n`;
+    msg += formatQuestionMessage(resObj.nextQuestion, resObj.nextIndex, resObj.total);
+    return msg;
+  }
+
+  // Jika paket sudah selesai semua (Summary)
+  if (resObj.finished && resObj.summary && resObj.summary.total > 1) {
+    const sum = resObj.summary;
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `🏁 *SESI PAKET SOAL SELESAI!*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `👤 *Peserta:* ${sum.senderName}\n`;
+    msg += `📋 *Total Soal:* ${sum.total} Soal\n`;
+    if (sum.isTkp) {
+      msg += `🎖️ *Total Skor TKP:* *${sum.tkpTotalScore} / ${sum.tkpMaxScore}* Poin\n`;
+    } else {
+      msg += `✅ *Jumlah Benar:* *${sum.scoreCorrect} / ${sum.total}* Soal\n`;
+      msg += `📈 *Persentase Akurasi:* *${sum.scorePct}%*\n`;
+    }
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `💡 _Ketik *soal random* atau *soal tiu (jumlah)* untuk latihan lagi!_`;
+    return msg;
   }
 
   msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -276,7 +361,7 @@ function getStats() {
 
 module.exports = {
   loadQuestions,
-  getRandomQuestion,
+  getRandomQuestions,
   startQuiz,
   getActiveQuiz,
   submitAnswer,
