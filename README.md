@@ -32,7 +32,12 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
      - `4x`: H-1 Jam, H-30 menit, H-10 menit, dan Tepat Waktu.
    - Peringatan tepat waktu di grup otomatis melakukan mention/tag seluruh anggota.
    - Background worker memeriksa jadwal tiap 25 detik WIB (`Asia/Jakarta`).
-4. **Data Persisten & Anti Hilang**:
+5. **Antrean Pesan (Message Queue), Anti-Duplikasi & Manajemen Memori**:
+   - **Anti-Stale / Catch-Up Protection**: Pesan sync/offline dari masa lalu (usia > 90 detik) otomatis diabaikan saat bot baru menyala agar bot tidak membalas pesan kemarin.
+   - **Anti-Duplicate Filter**: Deduplikasi pesan berbasis LRU Set (kapasitas 2.000 ID) mencegah pengumuman / respon terkirim ganda.
+   - **Sequential Per-JID Queue**: Eksekusi pesan dalam satu chat/grup dijalankan secara berurutan (FIFO) mencegah race condition.
+   - **Memory Manager**: Pembersihan cache dan garbage collector terjadwal menjaga pemakaian RAM tetap ringan & stabil 24/7.
+6. **Data Persisten & Anti Hilang**:
    - Disimpan secara lokal dalam file database JSON dengan mekanisme *atomic write* (mencegah korupsi data).
    - Backup otomatis dibuat setiap kali ada perubahan data ke folder `data/backups/`.
 

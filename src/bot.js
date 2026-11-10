@@ -12,6 +12,7 @@ const qrcode = require('qrcode-terminal');
 const { handleMessage } = require('./commandHandler');
 const alarmService = require('./alarmService');
 const webServer = require('./webServer');
+const messageQueue = require('./messageQueue');
 
 // Anti-crash
 process.on('uncaughtException', (err) => {
@@ -156,13 +157,16 @@ async function startBot() {
     }
   });
 
-  // Event pesan masuk
+  // Event pesan masuk dengan Anti-Duplicate, Anti-Stale, & Sequential Queue
   sock.ev.on('messages.upsert', async (m) => {
     try {
-      if (m.type === 'notify') {
+      if (m.type === 'notify' && Array.isArray(m.messages)) {
         for (const msg of m.messages) {
-          if (!msg.key.fromMe) {
-            await handleMessage(sock, msg);
+          if (messageQueue.shouldProcessMessage(msg)) {
+            const jid = msg.key?.remoteJid;
+            if (jid) {
+              messageQueue.enqueue(jid, () => handleMessage(sock, msg));
+            }
           }
         }
       }
