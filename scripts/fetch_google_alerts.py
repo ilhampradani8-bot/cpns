@@ -107,22 +107,66 @@ def clean_html(text):
     return text
 
 
-def summarize_with_groq(title, raw_desc):
+def scrape_article_text(url):
     """
-    Rangkum berita menjadi poin-poin ala Gemini/Grok Side Panel
+    Scrape isi artikel berita asli agar Groq AI bisa mengindeks seluruh isi dan detail formasi
+    """
+    if not url or "youtube.com" in url or "youtu.be" in url or "instagram.com" in url:
+        return ""
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+            paragraphs = re.findall(r"<p[^>]*>([\s\S]*?)</p>", html)
+            clean_text = " ".join(
+                [
+                    unescape(re.sub(r"<[^>]+>", " ", p)).strip()
+                    for p in paragraphs
+                    if len(p.strip()) > 20
+                ]
+            )
+            clean_text = re.sub(r"\s+", " ", clean_text).strip()
+            return clean_text[:4000]
+    except Exception:
+        return ""
+
+
+def summarize_with_groq(title, raw_desc, article_url=""):
+    """
+    Rangkum berita menjadi poin-poin informatif & konkret dengan web scraping artikel asli
     """
     if not title:
         return raw_desc
 
+    # Scrape web asli jika ada URL
+    full_text = ""
+    if article_url:
+        full_text = scrape_article_text(article_url)
+
+    if full_text and len(full_text) > 200:
+        content_source = f"Isi Lengkap Artikel Web:\n{full_text}"
+    else:
+        content_source = f"Kutipan Awal:\n{raw_desc}"
+
     prompt = (
-        f"Kamu adalah AI perangkum berita CPNS ala Gemini Workspace side-panel.\n"
-        f"Rangkum intisari berita berikut menjadi 2 atau 3 poin kunci yang padat, akurat, dan bernas dalam Bahasa Indonesia.\n"
-        f"Fokus pada: Formasi, Syarat, Tanggal/Jadwal, atau Kebijakan Pemerintah.\n"
+        f"Kamu adalah AI asisten CPNS perangkum berita resmi yang SANGAT INFORMATIF, SPESIFIK, dan DETAIL.\n"
+        f"Tugasmu merangkum fakta konkret dari berita berikut ke dalam Bahasa Indonesia.\n"
+        f"WAJIB: Jika dalam berita ada penyebutan angka atau bidang formasi (contoh: '4 bidang' atau bocoran formasi), "
+        f"kamu WAJIB MENJELASKAN RINCI SATU PER SATU bidang/formasi apa saja yang dimaksud beserta instansi/syarat/jadwalnya!\n\n"
         f"Judul: {title}\n"
-        f"Kutipan Awal: {raw_desc}\n\n"
-        f"HANYA berikan poin-poin dengan format:\n"
-        f"• [Poin 1]\n"
-        f"• [Poin 2]"
+        f"{content_source}\n\n"
+        f"Format balasan (singkat, padat, dan langsung to-the-point tanpa kalimat pembuka basa-basi):\n"
+        f"• *Jadwal / Waktu:* [Penjelasan jadwal/waktu]\n"
+        f"• *Daftar Formasi:* [Sebutkan detail konkret nama formasi yang dibocorkan, contoh: 1. ..., 2. ...]\n"
+        f"• *Catatan / Syarat:* [Poin penting lainnya jika ada]"
     )
 
     payload = {
@@ -130,12 +174,15 @@ def summarize_with_groq(title, raw_desc):
         "messages": [
             {
                 "role": "system",
-                "content": "Kamu AI perangkum berita CPNS resmi. Berikan poin ringkas, padat, dan jelas.",
+                "content": (
+                    "Kamu AI perangkum berita CPNS. Berikan fakta konkret dan rincian formasi yang jelas "
+                    "langsung to-the-point tanpa kalimat pembuka basa-basi."
+                ),
             },
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 250,
-        "temperature": 0.3,
+        "max_tokens": 400,
+        "temperature": 0.2,
     }
 
     for key in GROQ_KEYS:
@@ -149,7 +196,7 @@ def summarize_with_groq(title, raw_desc):
                     "User-Agent": "Mozilla/5.0",
                 },
             )
-            with urllib.request.urlopen(req, timeout=7) as response:
+            with urllib.request.urlopen(req, timeout=8) as response:
                 res = json.loads(response.read().decode("utf-8"))
                 content = res["choices"][0]["message"]["content"].strip()
                 if content:
@@ -298,10 +345,10 @@ def fetch_alerts(preview_only=False, max_emails=3):
 
         mail.logout()
 
-        # Enrich articles with Groq AI bullet-point executive summaries
+        # Enrich articles with Groq AI bullet-point executive summaries (with deep web scraping)
         for art in new_articles[:6]:
             try:
-                art["ai_summary"] = summarize_with_groq(art["title"], art["summary"])
+                art["ai_summary"] = summarize_with_groq(art["title"], art["summary"], art["url"])
             except Exception:
                 art["ai_summary"] = art["summary"]
 
