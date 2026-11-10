@@ -12,6 +12,8 @@ import json
 import imaplib
 import email
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timezone
 import re
 import urllib.parse
 import urllib.request
@@ -289,6 +291,10 @@ def fetch_alerts(preview_only=False, max_emails=3):
 
         for mid in reversed(recent_ids):
             mid_str = mid.decode("utf-8")
+            # 1. Anti-Duplicate: Skip jika email ID sudah pernah diproses sebelumnya
+            if not preview_only and (mid_str in processed_msg_ids):
+                continue
+
             res, data = mail.fetch(mid, "(RFC822)")
             if res != "OK" or not data or not data[0]:
                 continue
@@ -299,6 +305,20 @@ def fetch_alerts(preview_only=False, max_emails=3):
             sender = msg.get("From", "").lower()
             if "googlealerts-noreply@google.com" not in sender:
                 continue
+
+            # Extract date & Anti-Yesterday Filter: Hanya izinkan email dalam 24 jam terakhir
+            email_date = msg.get("Date", "")
+            if not preview_only and email_date:
+                try:
+                    dt = parsedate_to_datetime(email_date)
+                    now_utc = datetime.now(timezone.utc)
+                    age_hours = (now_utc - dt).total_seconds() / 3600.0
+                    if age_hours > 24.0:
+                        # Email kemarin / usang, catat ID agar tidak pernah dicek lagi dan lewati
+                        processed_msg_ids.add(mid_str)
+                        continue
+                except Exception:
+                    pass
 
             # Verify subject
             subject_header = decode_header(msg.get("Subject", ""))[0]
