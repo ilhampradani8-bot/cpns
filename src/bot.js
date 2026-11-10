@@ -11,6 +11,7 @@ const readline = require('readline');
 const qrcode = require('qrcode-terminal');
 const { handleMessage } = require('./commandHandler');
 const alarmService = require('./alarmService');
+const googleAlertService = require('./googleAlertService');
 const webServer = require('./webServer');
 const messageQueue = require('./messageQueue');
 
@@ -165,6 +166,8 @@ async function startBot() {
       webServer.setConnected(sock.user?.id || 'Connected');
       // Aktifkan background alarm scheduler
       alarmService.startAlarmWorker(sock);
+      // Aktifkan background Google Alerts monitor
+      googleAlertService.startAlertWorker(sock);
     }
   });
 

@@ -40,6 +40,11 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
 6. **Data Persisten & Anti Hilang**:
    - Disimpan secara lokal dalam file database JSON dengan mekanisme *atomic write* (mencegah korupsi data).
    - Backup otomatis dibuat setiap kali ada perubahan data ke folder `data/backups/`.
+7. **Integrasi Google Alerts CPNS (Rangkuman Otomatis)**:
+   - Terhubung langsung via IMAP SSL aman (`algojodua2@gmail.com`).
+   - Filter ketat: Hanya membaca email dari `googlealerts-noreply@google.com`.
+   - Mengambil judul, rangkuman isi berita, dan direct link artikel resmi.
+   - Mengirim otomatis ke grup CPNS tanpa link kosongan dan anti-duplikasi.
 
 ---
 
@@ -55,6 +60,7 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
 | **Menjawab Soal Kuis** | Ketik `A` / `B` / `C` / `D` / `E` | Bot langsung mengevaluasi jawaban, lanjut ke soal berikutnya, & rekap skor akhir. |
 | **Statistik Bank Soal** | `stats kuis` atau `info kuis` | Menampilkan total ribuan soal yang siap digunakan per kategori. |
 | **Batalkan Kuis** | `batal kuis` | Menghentikan sesi soal yang sedang aktif. |
+| **Berita Google Alert CPNS** | `berita cpns` atau `alert cpns` | Menampilkan rangkuman berita dan formasi CPNS terbaru dari Google Alert. |
 | **Simpan Catatan Teks** | `save (twk pancasila) isi (Pancasila adalah dasar filosofis...)` | Menyimpan materi baru berupa teks catatan. |
 | **Simpan Berkas File (PDF/Foto)** | Kirim PDF/Foto/Doc dengan caption:<br>`save (modul twk)`<br>atau reply file lalu ketik:<br>`save (modul twk) isi (Keterangan file...)` | Mengunduh dan menyimpan berkas fisik (PDF, gambar, dokumen, dll) ke database server. |
 | **Panggil Materi / File (Read)** | `twk pancasila`<br>atau `modul twk`<br>atau `panggil 1` | Menampilkan catatan teks atau **langsung mengirimkan berkas file aslinya**. |

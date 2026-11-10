@@ -5,6 +5,7 @@ const db = require('./database');
 const whitelist = require('./whitelist');
 const alarmService = require('./alarmService');
 const quizService = require('./quizService');
+const googleAlertService = require('./googleAlertService');
 
 /**
  * Normalisasi teks input
@@ -482,6 +483,20 @@ async function handleMessage(sock, msg) {
     return;
   }
 
+  // Cek Berita Google Alerts CPNS On-Demand
+  if (lowerText === 'berita cpns' || lowerText === 'alert cpns' || lowerText === 'cek berita' || lowerText === 'update cpns') {
+    await sock.sendMessage(fromJid, { text: '⏳ _Sedang memeriksa email Google Alerts CPNS terbaru..._' }, { quoted: msg });
+    const newsMsg = await googleAlertService.getLatestNewsForChat();
+    if (newsMsg) {
+      await sock.sendMessage(fromJid, { text: newsMsg }, { quoted: msg });
+    } else {
+      await sock.sendMessage(fromJid, {
+        text: 'ℹ️ Belum ada email Google Alert CPNS baru di inbox saat ini. Bot akan otomatis mengirimkannya ke grup saat ada update masuk.'
+      }, { quoted: msg });
+    }
+    return;
+  }
+
   // 4. MENU / HELP / BANTUAN
   if (lowerText === 'menu' || lowerText === 'help' || lowerText === 'bantuan') {
     const helpMsg =
@@ -495,6 +510,7 @@ async function handleMessage(sock, msg) {
       `• _Ketik tanpa angka (contoh: \`soal tiu\`) otomatis 1 soal drilling._\n` +
       `• *stats kuis* : Lihat total bank soal yang tersedia\n` +
       `• *batal kuis* : Menghentikan kuis yang sedang aktif\n` +
+      `• *berita cpns* : Cek rangkuman berita CPNS terbaru (Google Alert)\n` +
       `_Cara jawab: Cukup ketik huruf pilihan, contoh:_ \`A\` _atau_ \`jawab C\`\n\n` +
       `*1. Simpan Catatan Teks (Create)*\n` +
       `• *save [judul] isi [konten]*\n` +
