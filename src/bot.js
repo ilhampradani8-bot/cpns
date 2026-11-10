@@ -79,21 +79,32 @@ async function startBot() {
   console.log('📚 MEMULAI BOT WHATSAPP CPNS (UTM HOST)...');
   console.log('==============================================');
 
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  console.log(`[Baileys] Versi: ${version.join('.')} (Latest: ${isLatest})`);
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    let version = [2, 3000, 1043857760];
+    let isLatest = true;
+    try {
+      const v = await fetchLatestBaileysVersion();
+      if (v?.version) {
+        version = v.version;
+        isLatest = v.isLatest;
+      }
+    } catch (_) {
+      console.log('[Baileys] Jaringan offline saat cek versi Baileys, memakai fallback versi cache.');
+    }
+    console.log(`[Baileys] Versi: ${version.join('.')} (Latest: ${isLatest})`);
 
-  const sock = makeWASocket({
-    version,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
-    auth: state,
-    browser: ['Ubuntu', 'Chrome', '20.0.04'],
-    syncFullHistory: false,
-    generateHighQualityLinkPreview: false,
-    markOnlineOnConnect: true,
-    getMessage: async () => undefined
-  });
+    const sock = makeWASocket({
+      version,
+      logger: pino({ level: 'silent' }),
+      printQRInTerminal: false,
+      auth: state,
+      browser: ['Ubuntu', 'Chrome', '20.0.04'],
+      syncFullHistory: false,
+      generateHighQualityLinkPreview: false,
+      markOnlineOnConnect: true,
+      getMessage: async () => undefined
+    });
 
   // Pasang handler request pairing code dari web UI
   webServer.setPairingRequestHandler(async (phoneNumber) => {
@@ -176,6 +187,12 @@ async function startBot() {
   });
 
   return sock;
+  } catch (err) {
+    console.error('[CPNS-Bot Start Error]:', err?.message || err);
+    console.log('[CPNS-Bot] Menjadwalkan start ulang dalam 5 detik...');
+    setTimeout(startBot, 5000);
+    return null;
+  }
 }
 
 module.exports = { startBot };
