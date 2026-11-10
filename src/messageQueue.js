@@ -7,7 +7,7 @@
  */
 
 const MAX_PROCESSED_IDS = 2000;
-const MAX_MESSAGE_AGE_SEC = 90; // Abaikan pesan sync/offline yang berusia lebih dari 90 detik
+const MAX_MESSAGE_AGE_SEC = 300; // Toleransi hingga 5 menit (mencegah pesan drop saat restart/reboot singkat)
 
 const processedMsgIds = new Set();
 const msgIdOrder = [];

@@ -306,6 +306,9 @@ async function handleMessage(sock, msg) {
   // Jika tidak ada teks dan tidak ada media, abaikan
   if (!rawText && !media) return;
 
+  const logSnippet = (rawText || (media ? `[Media: ${media.mediaType}]` : '')).replace(/\n/g, ' ').substring(0, 70);
+  console.log(`[CPNS-Msg] Dari: ${senderJid} (${fromJid}) | Mode: ${isGroup ? 'Grup' : 'Pribadi'} | Teks: "${logSnippet}"`);
+
   const lowerText = rawText.toLowerCase();
 
   // 1. FITUR REGISTRASI (daftar cpns)
@@ -344,7 +347,7 @@ async function handleMessage(sock, msg) {
 
   // 2. CEK WHITELIST (Hanya grup CPNS terdaftar atau nomor pribadi terdaftar yang direspon)
   if (!whitelist.isAllowed(fromJid, isGroup)) {
-    // Jika belum terdaftar, diamkan (silent) agar tidak spam / mengganggu grup lain
+    console.log(`[CPNS-Msg] ⏩ Diabaikan (belum terdaftar di whitelist CPNS): ${fromJid}`);
     return;
   }
 
