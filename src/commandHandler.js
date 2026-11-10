@@ -4,6 +4,7 @@ const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const db = require('./database');
 const whitelist = require('./whitelist');
 const alarmService = require('./alarmService');
+const quizService = require('./quizService');
 
 /**
  * Normalisasi teks input
@@ -389,11 +390,87 @@ async function handleMessage(sock, msg) {
     return;
   }
 
+  // === FITUR JAWAB KUIS SOAL CPNS ===
+  const activeQuiz = quizService.getActiveQuiz(fromJid);
+  if (activeQuiz) {
+    // Cek apakah pesan berupa jawaban (huruf A-E tunggal atau "jawab A" / "pilih B")
+    const ansMatch = lowerText.match(/^(?:jawab|jawaban|pilih|opsi)?\s*([a-e])$/i);
+    if (ansMatch) {
+      const userLetter = ansMatch[1].toUpperCase();
+      const senderName = msg.pushName || (senderJid ? `@${senderJid.split('@')[0]}` : 'Peserta');
+      const result = quizService.submitAnswer(fromJid, userLetter, senderName);
+      if (result.success) {
+        const respText = quizService.formatResultMessage(result);
+        await sock.sendMessage(fromJid, { text: respText }, { quoted: msg });
+        return;
+      }
+    } else if (lowerText === 'batal kuis' || lowerText === 'stop kuis' || lowerText === 'batal soal') {
+      quizService.cancelQuiz(fromJid);
+      await sock.sendMessage(fromJid, {
+        text: '🛑 *Sesi kuis soal telah dibatalkan.*\nKetik *soal random* atau *soal tiu/twk/tkp* kapan saja untuk mulai lagi.'
+      }, { quoted: msg });
+      return;
+    }
+  }
+
+  // === FITUR PEMANGGIL KUIS SOAL CPNS ===
+  const quizTriggerMatch = lowerText.match(/^(?:soal|kuis)(?:\s+(random|acak|tiu|twk|tkp))?$/i);
+  if (quizTriggerMatch) {
+    let cat = quizTriggerMatch[1] ? quizTriggerMatch[1].toLowerCase() : null;
+    let targetCat = null;
+    if (cat === 'tiu') targetCat = 'TIU';
+    else if (cat === 'twk') targetCat = 'TWK';
+    else if (cat === 'tkp') targetCat = 'TKP';
+
+    const question = quizService.startQuiz(fromJid, targetCat);
+    if (!question) {
+      await sock.sendMessage(fromJid, {
+        text: '⚠️ Maaf, bank soal sedang disiapkan atau tidak ditemukan untuk kategori tersebut.\nSilakan coba lagi sebentar lagi.'
+      }, { quoted: msg });
+      return;
+    }
+
+    const qText = quizService.formatQuestionMessage(question);
+    await sock.sendMessage(fromJid, { text: qText }, { quoted: msg });
+    return;
+  }
+
+  // Info / Stats Bank Soal Kuis
+  if (lowerText === 'stats kuis' || lowerText === 'info kuis' || lowerText === 'bank soal') {
+    const stats = quizService.getStats();
+    const statsMsg =
+      `📊 *STATISTIK BANK SOAL CPNS (DRILLING MODE)*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `📚 *Total Soal Aktif:* *${stats.total} Soal*\n` +
+      `• 🔴 *TWK (Wawasan Kebangsaan):* ${stats.twk} Soal\n` +
+      `• 🔵 *TIU (Intelegensia Umum):* ${stats.tiu} Soal\n` +
+      `• 🟢 *TKP (Karakteristik Pribadi):* ${stats.tkp} Soal\n\n` +
+      `*Cara Memulai Kuis di Grup:*\n` +
+      `• *soal random* (Acak semua soal)\n` +
+      `• *soal tiu* (Fokus soal TIU)\n` +
+      `• *soal twk* (Fokus soal TWK)\n` +
+      `• *soal tkp* (Fokus soal TKP)\n` +
+      `• Balas cukup ketik huruf: *A*, *B*, *C*, *D*, atau *E*\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 _Seluruh soal dilengkapi kunci jawaban resmi & pembahasan instan!_`;
+
+    await sock.sendMessage(fromJid, { text: statsMsg }, { quoted: msg });
+    return;
+  }
+
   // 4. MENU / HELP / BANTUAN
   if (lowerText === 'menu' || lowerText === 'help' || lowerText === 'bantuan') {
     const helpMsg =
       `📖 *PANDUAN PERINTAH BOT CPNS*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `🎯 *MODE LATIHAN SOAL / KUIS (NEW)*\n` +
+      `• *soal random* / *kuis* : Munculkan 1 soal acak\n` +
+      `• *soal tiu* : Latihan khusus TIU (Hitung, Logika, Verbal)\n` +
+      `• *soal twk* : Latihan khusus TWK (Pancasila, UUD, Sejarah)\n` +
+      `• *soal tkp* : Latihan khusus TKP (Skala 1-5 poin)\n` +
+      `• *stats kuis* : Lihat total bank soal yang tersedia\n` +
+      `• *batal kuis* : Menghentikan kuis yang sedang aktif\n` +
+      `_Cara jawab: Cukup ketik huruf pilihan, contoh:_ \`A\` _atau_ \`jawab C\`\n\n` +
       `*1. Simpan Catatan Teks (Create)*\n` +
       `• *save [judul] isi [konten]*\n` +
       `_Contoh:_ \`save (twk pancasila) isi (Pancasila adalah dasar negara.)\`\n\n` +

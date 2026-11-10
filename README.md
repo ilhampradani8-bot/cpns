@@ -17,7 +17,13 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
    - **Update Nama**: Mengganti kata kunci / nama panggilan materi (`edit ... to ...`).
    - **Update Isi**: Menimpa isi materi dengan konten baru (`edit isi ... isi ...`).
    - **Delete / Hapus**: Menghapus materi dari database (`hapus ...`).
-3. **Sistem Alarm & Pengingat Jadwal Belajar**:
+3. **Mode Kuis & Latihan Soal Interaktif (Drilling Bank Soal)**:
+   - Menyediakan ribuan bank soal resmi (TIU, TWK, TKP) yang diekstrak langsung ke database lokal JSON.
+   - Pilihan mode: `soal random` (Acak total), `soal tiu`, `soal twk`, atau `soal tkp`.
+   - Menjawab interaktif: Cukup ketik huruf opsi `A`, `B`, `C`, `D`, atau `E`.
+   - Bot otomatis memberikan status benar/salah, kunci jawaban resmi, dan pembahasan mendalam seketika (0 ms latency).
+   - Khusus TKP: Otomatis menghitung bobot poin skala 1 s.d. 5 sesuai standar resmi CAT-BKN.
+4. **Sistem Alarm & Pengingat Jadwal Belajar**:
    - Menyetel alarm jadwal belajar atau tryout dengan opsi fleksibel (`hari, jam` atau `tanggal, jam`).
    - Pilihan metode pengingat:
      - `1x`: Tepat pada jam jadwal.
@@ -37,6 +43,13 @@ Bot WhatsApp berbasis Baileys yang didedikasikan khusus untuk **Grup CPNS** dan 
 | Perintah | Format Contoh | Deskripsi |
 | :--- | :--- | :--- |
 | **Registrasi Grup / Test** | `daftar cpns` | Ketik di grup untuk mendaftarkan grup CPNS, atau ketik di DM pribadi untuk testing. |
+| **Kuis Soal Acak (Random)** | `soal random` atau `kuis` | Mengambil 1 soal acak dari bank soal lengkap (TIU/TWK/TKP) dengan opsi A–E. |
+| **Kuis Khusus TIU** | `soal tiu` | Memunculkan latihan soal TIU (Hitung, Silogisme, Analitis, Deret). |
+| **Kuis Khusus TWK** | `soal twk` | Memunculkan latihan soal TWK (Pancasila, UUD 1945, Pilar Negara, Sejarah). |
+| **Kuis Khusus TKP** | `soal tkp` | Memunculkan latihan soal TKP dengan sistem penilaian poin skala 1–5. |
+| **Menjawab Soal Kuis** | Ketik `A` / `B` / `C` / `D` / `E` | Bot langsung mengevaluasi jawaban, menampilkan kunci jawaban & pembahasannya. |
+| **Statistik Bank Soal** | `stats kuis` atau `info kuis` | Menampilkan total ribuan soal yang siap digunakan per kategori. |
+| **Batalkan Kuis** | `batal kuis` | Menghentikan sesi soal yang sedang aktif. |
 | **Simpan Catatan Teks** | `save (twk pancasila) isi (Pancasila adalah dasar filosofis...)` | Menyimpan materi baru berupa teks catatan. |
 | **Simpan Berkas File (PDF/Foto)** | Kirim PDF/Foto/Doc dengan caption:<br>`save (modul twk)`<br>atau reply file lalu ketik:<br>`save (modul twk) isi (Keterangan file...)` | Mengunduh dan menyimpan berkas fisik (PDF, gambar, dokumen, dll) ke database server. |
 | **Panggil Materi / File (Read)** | `twk pancasila`<br>atau `modul twk`<br>atau `panggil 1` | Menampilkan catatan teks atau **langsung mengirimkan berkas file aslinya**. |
