@@ -42,17 +42,19 @@ function formatAlertMessage(article) {
     timeStyle: 'short'
   });
 
+  const summary = article.ai_summary || article.summary || '_(Rangkuman tidak tersedia)_';
+
   return (
     `📢 *GOOGLE ALERT: UPDATE BERITA CPNS TERBARU*\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `📅 *Update:* ${wibTime} WIB\n\n` +
     `📰 *${article.title}*\n\n` +
-    `📝 *Rangkuman Berita:*\n` +
-    `${article.summary || '_(Rangkuman tidak tersedia di pratinjau berita)_'}\n\n` +
+    `💡 *Intisari Berita (AI Summary):*\n` +
+    `${summary}\n\n` +
     `🔗 *Sumber Lengkap:*\n` +
     `${article.url}\n\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `_Asisten CPNS Hub • Pantauan Google Alert Otomatis_`
+    `_Asisten CPNS Hub • Rangkuman AI Groq 24/7_`
   );
 }
 
@@ -73,17 +75,18 @@ function formatDigestMessage(articles) {
     `📊 *Total Berita Baru:* ${articles.length} Artikel\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  articles.slice(0, 5).forEach((art, index) => {
+  articles.slice(0, 4).forEach((art, index) => {
+    const summary = art.ai_summary || art.summary || '';
     msg += `📌 *${index + 1}. ${art.title}*\n`;
-    if (art.summary) {
-      msg += `📝 _${art.summary}_\n`;
+    if (summary) {
+      msg += `💡 *Poin Utama (AI Summary):*\n${summary}\n`;
     }
     msg += `🔗 ${art.url}\n\n`;
   });
 
   msg +=
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `_Asisten CPNS Hub • Update Otomatis Terjadwal_`;
+    `_Asisten CPNS Hub • Rangkuman AI Groq 24/7_`;
 
   return msg;
 }
@@ -179,3 +182,4 @@ module.exports = {
   formatAlertMessage,
   formatDigestMessage
 };
+

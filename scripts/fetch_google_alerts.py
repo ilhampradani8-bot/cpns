@@ -14,12 +14,40 @@ import email
 from email.header import decode_header
 import re
 import urllib.parse
+import urllib.request
 from html import unescape
 
-EMAIL_USER = os.getenv("GOOGLE_ALERT_EMAIL", "algojodua2@gmail.com")
-EMAIL_PASS = os.getenv("GOOGLE_ALERT_PASS", "dvspqcgoetvpovuc")
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_FILE = os.path.join(BASE_DIR, ".env")
+
+# Dynamic .env loader
+def load_env_vars():
+    env = {}
+    if os.path.exists(ENV_FILE):
+        try:
+            with open(ENV_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        env[k.strip()] = v.strip().strip("'\"")
+        except Exception:
+            pass
+    return env
+
+_local_env = load_env_vars()
+
+EMAIL_USER = os.getenv("GOOGLE_ALERT_EMAIL", _local_env.get("GOOGLE_ALERT_EMAIL", "algojodua2@gmail.com"))
+EMAIL_PASS = os.getenv("GOOGLE_ALERT_PASS", _local_env.get("GOOGLE_ALERT_PASS", "dvspqcgoetvpovuc"))
+
+GROQ_KEYS = [
+    k for k in [
+        os.getenv("GROQ_API_KEY_1", _local_env.get("GROQ_API_KEY_1")),
+        os.getenv("GROQ_API_KEY_2", _local_env.get("GROQ_API_KEY_2")),
+    ] if k
+]
+GROQ_MODEL = "qwen/qwen3.8-27b"
+
 DATA_DIR = os.path.join(BASE_DIR, "data")
 PROCESSED_FILE = os.path.join(DATA_DIR, "processed_alerts.json")
 
@@ -77,6 +105,59 @@ def clean_html(text):
     # clean extra spaces
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def summarize_with_groq(title, raw_desc):
+    """
+    Rangkum berita menjadi poin-poin ala Gemini/Grok Side Panel
+    """
+    if not title:
+        return raw_desc
+
+    prompt = (
+        f"Kamu adalah AI perangkum berita CPNS ala Gemini Workspace side-panel.\n"
+        f"Rangkum intisari berita berikut menjadi 2 atau 3 poin kunci yang padat, akurat, dan bernas dalam Bahasa Indonesia.\n"
+        f"Fokus pada: Formasi, Syarat, Tanggal/Jadwal, atau Kebijakan Pemerintah.\n"
+        f"Judul: {title}\n"
+        f"Kutipan Awal: {raw_desc}\n\n"
+        f"HANYA berikan poin-poin dengan format:\n"
+        f"• [Poin 1]\n"
+        f"• [Poin 2]"
+    )
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "Kamu AI perangkum berita CPNS resmi. Berikan poin ringkas, padat, dan jelas.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 250,
+        "temperature": 0.3,
+    }
+
+    for key in GROQ_KEYS:
+        try:
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=7) as response:
+                res = json.loads(response.read().decode("utf-8"))
+                content = res["choices"][0]["message"]["content"].strip()
+                if content:
+                    return content
+        except Exception:
+            continue
+
+    return raw_desc
 
 
 def parse_articles_from_html(html):
@@ -205,7 +286,7 @@ def fetch_alerts(preview_only=False, max_emails=3):
             parsed_list = parse_articles_from_html(html_content)
             for art in parsed_list:
                 art_url = art["url"]
-                if art_url not in processed_urls:
+                if preview_only or (art_url not in processed_urls):
                     art["email_date"] = email_date
                     art["subject"] = subject
                     new_articles.append(art)
@@ -216,6 +297,13 @@ def fetch_alerts(preview_only=False, max_emails=3):
                 processed_msg_ids.add(mid_str)
 
         mail.logout()
+
+        # Enrich articles with Groq AI bullet-point executive summaries
+        for art in new_articles[:6]:
+            try:
+                art["ai_summary"] = summarize_with_groq(art["title"], art["summary"])
+            except Exception:
+                art["ai_summary"] = art["summary"]
 
         if not preview_only and new_articles:
             save_processed(processed_urls, processed_msg_ids)
@@ -238,3 +326,4 @@ if __name__ == "__main__":
     preview = "--preview" in sys.argv
     res = fetch_alerts(preview_only=preview)
     print(json.dumps(res, indent=2, ensure_ascii=False))
+

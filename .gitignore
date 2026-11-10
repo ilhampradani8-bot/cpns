@@ -6,3 +6,5 @@ auth_info/
 data/backups/
 data/pdf_raw/
 *.log
+.env
+.env.*
