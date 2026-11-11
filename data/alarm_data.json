@@ -1,5 +1,5 @@
 {
-  "nextId": 3,
+  "nextId": 4,
   "alarms": [
     {
       "id": 1,
@@ -14,8 +14,29 @@
       "method": "3x",
       "message": "BELAJAR RUTIN SKD CPNS - GABOLEH PANCEEEEEEEEEEEEEEEE",
       "active": true,
-      "triggeredStages": [],
+      "triggeredStages": [
+        "2026-11-11_h-30",
+        "2026-11-11_h-15"
+      ],
       "createdAt": "9/11/2026, 19.55.23"
+    },
+    {
+      "id": 3,
+      "targetJid": "120363412342177283@g.us",
+      "isGroup": true,
+      "creatorJid": "74441061089525@lid",
+      "scheduleRaw": "11/11/2026 13.00",
+      "scheduleType": "date",
+      "targetDate": "2026-11-11",
+      "dayOfWeek": null,
+      "time": "13:00",
+      "method": "3x",
+      "message": "Belajar#3",
+      "active": true,
+      "triggeredStages": [
+        "2026-11-11_h-30"
+      ],
+      "createdAt": "11/11/2026, 01.06.02"
     }
   ]
 }

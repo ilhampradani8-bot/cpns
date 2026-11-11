@@ -1,14 +1,7 @@
 #!/bin/bash
-# Runner 24/7 untuk Bot WhatsApp CPNS di UTM
-DIR="/root/CPNS"
-cd "$DIR" || exit 1
+# DEPRECATED RUNNER SCRIPT
+# CPNS Bot sekarang 100% dikelola secara native via Systemd (cpns-bot.service).
+# File ini diamankan agar tidak memicu double process atau socket conflict jika terpanggil.
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Memulai Daemon Bot WhatsApp CPNS..." >> /root/CPNS/bot.log
-
-while true; do
-  node index.js >> /root/CPNS/bot.log 2>&1
-  EXIT_CODE=$?
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Bot berhenti (exit code: $EXIT_CODE). Restart dalam 5 detik..." >> /root/CPNS/bot.log
-  sleep 5
-done
-
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Script run_daemon.sh deprecated. Mengalihkan ke systemctl start cpns-bot..." >> /root/CPNS/bot.log
+systemctl start cpns-bot
