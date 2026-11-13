@@ -111,7 +111,8 @@ def clean_html(text):
 
 def scrape_article_text(url):
     """
-    Scrape isi artikel berita asli agar Groq AI bisa mengindeks seluruh isi dan detail formasi
+    Scrape isi artikel berita asli dengan sanitasi ketat (membersihkan JavaScript, style, dan navigasi)
+    agar Groq AI hanya menerima teks berita murni tanpa kode sumber web.
     """
     if not url or "youtube.com" in url or "youtu.be" in url or "instagram.com" in url:
         return ""
@@ -125,25 +126,54 @@ def scrape_article_text(url):
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
-            paragraphs = re.findall(r"<p[^>]*>([\s\S]*?)</p>", html)
-            clean_text = " ".join(
-                [
-                    unescape(re.sub(r"<[^>]+>", " ", p)).strip()
-                    for p in paragraphs
-                    if len(p.strip()) > 20
-                ]
-            )
-            clean_text = re.sub(r"\s+", " ", clean_text).strip()
-            return clean_text[:4000]
+            
+            # 1. Bersihkan seluruh tag script, style, noscript, svg, dan navigasi web
+            clean_html = re.sub(r"<script[^>]*>[\s\S]*?</script>", " ", html, flags=re.I)
+            clean_html = re.sub(r"<style[^>]*>[\s\S]*?</style>", " ", clean_html, flags=re.I)
+            clean_html = re.sub(r"<noscript[^>]*>[\s\S]*?</noscript>", " ", clean_html, flags=re.I)
+            clean_html = re.sub(r"<svg[^>]*>[\s\S]*?</svg>", " ", clean_html, flags=re.I)
+            clean_html = re.sub(r"<(nav|header|footer|aside)[^>]*>[\s\S]*?</\1>", " ", clean_html, flags=re.I)
+
+            # 2. Ambil seluruh paragraf <p>
+            paragraphs = re.findall(r"<p[^>]*>([\s\S]*?)</p>", clean_html)
+            clean_paragraphs = []
+            
+            # Indikator kode JavaScript / UI yang bocor ke tag <p>
+            js_indicators = [
+                "const ", "var ", "let ", "function(", "function (",
+                "document.", "window.", "scrolltop", "addeventlistener",
+                "debounce", "{", "}", "=>", "queryselector", "getelementbyid",
+                "searchbox", "searchinput", "useragent"
+            ]
+            boilerplate_stop = [
+                "copyright", "all rights reserved", "scroll to continue",
+                "kebijakan privasi", "syarat dan ketentuan"
+            ]
+
+            for p in paragraphs:
+                txt = unescape(re.sub(r"<[^>]+>", " ", p)).strip()
+                txt = re.sub(r"\s+", " ", txt)
+                lower_p = txt.lower()
+                
+                # Filter: panjang minimal 25 karakter dan tidak mengandung kode JavaScript atau boilerplate
+                if len(txt) > 25 and not any(ind in lower_p for ind in js_indicators):
+                    if not any(stop in lower_p for stop in boilerplate_stop):
+                        clean_paragraphs.append(txt)
+
+            clean_text = " ".join(clean_paragraphs).strip()
+            # Hanya kembalikan jika artikel memiliki isi substansial (> 150 karakter teks murni)
+            if len(clean_text) > 150:
+                return clean_text[:3500]
+            return ""
     except Exception:
         return ""
 
 
 def summarize_with_groq(title, raw_desc, article_url=""):
     """
-    Rangkum berita menjadi poin-poin informatif & konkret dengan web scraping artikel asli
+    Rangkum berita menjadi poin-poin informatif & konkret dengan perpaduan kutipan Google Alert dan teks artikel web
     """
     if not title:
         return raw_desc
@@ -153,20 +183,26 @@ def summarize_with_groq(title, raw_desc, article_url=""):
     if article_url:
         full_text = scrape_article_text(article_url)
 
-    if full_text and len(full_text) > 200:
-        content_source = f"Isi Lengkap Artikel Web:\n{full_text}"
+    # Selalu sertakan kutipan Google Alert sebagai ground truth utama agar tidak pernah teralihkan kode skrip
+    if full_text:
+        content_source = (
+            f"Kutipan Google Alert:\n{raw_desc}\n\n"
+            f"Isi Artikel Web:\n{full_text}"
+        )
     else:
-        content_source = f"Kutipan Awal:\n{raw_desc}"
+        content_source = f"Kutipan Google Alert:\n{raw_desc}"
 
     prompt = (
         f"Kamu adalah AI asisten CPNS perangkum berita resmi yang SANGAT INFORMATIF, SPESIFIK, dan DETAIL.\n"
         f"Tugasmu merangkum fakta konkret dari berita berikut ke dalam Bahasa Indonesia.\n"
-        f"WAJIB: Jika dalam berita ada penyebutan angka atau bidang formasi (contoh: '4 bidang' atau bocoran formasi), "
-        f"kamu WAJIB MENJELASKAN RINCI SATU PER SATU bidang/formasi apa saja yang dimaksud beserta instansi/syarat/jadwalnya!\n\n"
+        f"PENTING: Jangan pernah merangkum kode skrip, HTML, atau navigasi web. Fokus HANYA pada berita fakta CPNS "
+        f"(jadwal pembukaan, rincian bidang/nama formasi prioritas, kuota, instansi, dan persyaratannya).\n"
+        f"Jika ada penyebutan angka atau bidang formasi (contoh: 4 bidang formasi atau bocoran formasi), "
+        f"WAJIB MENJELASKAN RINCI SATU PER SATU bidang/formasi apa saja yang dimaksud!\n\n"
         f"Judul: {title}\n"
         f"{content_source}\n\n"
-        f"Format balasan (singkat, padat, dan langsung to-the-point tanpa kalimat pembuka basa-basi):\n"
-        f"• *Jadwal / Waktu:* [Penjelasan jadwal/waktu]\n"
+        f"Format balasan (singkat, padat, dan langsung to-the-point tanpa basa-basi):\n"
+        f"• *Jadwal / Waktu:* [Penjelasan jadwal/waktu pembukaan]\n"
         f"• *Daftar Formasi:* [Sebutkan detail konkret nama formasi yang dibocorkan, contoh: 1. ..., 2. ...]\n"
         f"• *Catatan / Syarat:* [Poin penting lainnya jika ada]"
     )

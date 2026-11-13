@@ -1,5 +1,5 @@
 {
-  "nextId": 14,
+  "nextId": 15,
   "items": [
     {
       "id": 1,
@@ -58,6 +58,15 @@
       "file": null,
       "createdAt": "9/11/2026, 23.40.27",
       "updatedAt": "10/11/2026, 11.37.55"
+    },
+    {
+      "id": 14,
+      "callName": "logika",
+      "type": "text",
+      "content": "buku Analogi silogisme dan full all logika verbal https://drive.google.com/drive/u/1/folders/1YYjgA_IjGj3ehZP72L-S7e_bkKcC6ofI",
+      "file": null,
+      "createdAt": "13/11/2026, 12.32.01",
+      "updatedAt": "13/11/2026, 12.32.01"
     }
   ]
 }

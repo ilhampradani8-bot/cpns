@@ -6,5 +6,7 @@ auth_info/
 data/backups/
 data/pdf_raw/
 *.log
+__pycache__/
+*.pyc
 .env
 .env.*
